@@ -183,6 +183,58 @@ split_dataset() {
     rm "$combined"
 }
 
+# --- Helper: concatenate all per-class TSVs into one file (for split=no datasets) ---
+# Output: {SEQ_DIR}/{dataset_prefix}.seq{suffix}.tsv
+# e.g. ClinVar.260309only.missense.hg38.seq12k.tsv
+# Includes all classes: class0, class1, and unlabeled if present.
+concat_dataset() {
+    local name="$1"
+    local suffix="$2"
+    local -n _c0_beds="$3"
+    local -n _c1_beds="$4"
+    local -n _ul_beds="$5"
+
+    # Output name: strip the trailing .{mode} from name (not applicable for
+    # split=no datasets, but handle gracefully), then use the raw name as prefix
+    local prefix="${name%.*}"
+    # If name has no dot-separated mode suffix, prefix == name — that's fine
+    [[ "$prefix" == "$name" ]] && prefix="$name"
+    local out="$SEQ_DIR/${prefix}.seq${suffix}.tsv"
+
+    if [[ -f "$out" ]]; then
+        echo "    Skipping concat (already exists): $out"
+        return
+    fi
+
+    local header_written=0
+    local n_files=0
+
+    for bed in "${_c0_beds[@]:-}" "${_c1_beds[@]:-}" "${_ul_beds[@]:-}"; do
+        [[ -z "$bed" ]] && continue
+        local tsv="$SEQ_DIR/$(basename "$bed").seq${suffix}.tsv"
+
+        if [[ ! -f "$tsv" ]]; then
+            echo "    ERROR: Sequence file not found: $tsv" >&2
+            exit 1
+        fi
+
+        if [[ "$header_written" -eq 0 ]]; then
+            cat "$tsv" > "$out"
+            header_written=1
+        else
+            tail -n +2 "$tsv" >> "$out"
+        fi
+        (( n_files++ )) || true
+    done
+
+    if [[ "$n_files" -eq 0 ]]; then
+        echo "    WARNING: No input files found for concat, skipping." >&2
+        return
+    fi
+
+    echo "    Concatenated ${n_files} class file(s) -> $out"
+}
+
 # --- Main loop over config rows ----------------------------------------------
 echo "Config : $CONFIG"
 echo "Sizes  : ${!LENGTHS[*]}"
@@ -217,9 +269,11 @@ while IFS= read -r line; do
         for bed in "${class1_beds[@]:-}";    do generate_one_bed "1"         "$suffix" "$bed"; done
         for bed in "${unlabeled_beds[@]:-}"; do generate_one_bed "unlabeled" "$suffix" "$bed"; done
 
-        # Step 2: split if requested
+        # Step 2: split or concatenate
         if [[ "${split:-no}" == "yes" ]]; then
             split_dataset "$name" "$suffix" class0_beds class1_beds
+        else
+            concat_dataset "$name" "$suffix" class0_beds class1_beds unlabeled_beds
         fi
     done
     echo ""

@@ -1,37 +1,40 @@
 #!/usr/bin/env python3
 """
-NT_zeroshot.py
---------------
-Zero-shot variant pathogenicity scoring using a pretrained (not fine-tuned)
-Nucleotide Transformer via masked marginal log-likelihood ratio.
+zeroshot_caduceus.py
+--------------------
+Zero-shot variant pathogenicity scoring using a pretrained Caduceus model
+via masked marginal log-likelihood ratio.
 
-Strategy (masked marginal):
-    For each variant, mask the k-mer token containing the variant position
-    in the alt sequence and compute:
+Caduceus differs from Nucleotide Transformer in two key ways:
+  - Tokenization: single character per token (A/T/G/C), NOT k-mers.
+    Sequences are passed as raw strings, no kmerize() step.
+  - Variant token index: variant is at nucleotide position seq_len//2 (0-indexed),
+    +1 for [CLS] token = seq_len//2 + 1.
+  - Max length: 131,072 tokens (seq30k = 29,999 tokens, well within limit).
+
+Strategy (masked marginal), same as NT_zeroshot.py:
+    For each variant, mask the token at the variant position in the alt
+    sequence and compute:
 
         masked_marginal = log P(alt_token | context) - log P(ref_token | context)
 
-    Pathogenicity score = sigmoid(-masked_marginal), so that variants where
-    the model finds the alt allele surprising (negative log-ratio) get a
-    high pathogenicity score, consistent with score_variants.py (0-1, higher
-    = more pathogenic).
+    Pathogenicity score = sigmoid(-masked_marginal), 0-1, higher = more pathogenic.
 
-Output format is identical to scoring/score_variants.py so both feed into
-evaluation/merge_predictions.py without modification.
+Output format is identical to scoring/score_variants.py and NT_zeroshot.py so
+it feeds into evaluation/merge_predictions.py without modification.
 
 Usage (run from repo root):
-    python evaluation/NT_zeroshot.py \\
-        --input  data/sequences/ClinVar.260309only.seq12k.tsv \\
-        --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2.tsv \\
-        --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \\
-        --gpu 0
+    python evaluation/zeroshot_caduceus.py \\
+        --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
+        --output results/predictions/ClinVar.260309only.seq30k/zeroshot_Caduceus_seq30k.tsv \\
+        --gpu 2
 
-    # NT-1 (human-only model)
-    python evaluation/NT_zeroshot.py \\
-        --input  data/sequences/ClinVar.260309only.seq12k.tsv \\
-        --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT1.tsv \\
-        --model_name InstaDeepAI/nucleotide-transformer-500m-human-ref \\
-        --gpu 1
+    # Caduceus-Ph variant
+    python evaluation/zeroshot_caduceus.py \\
+        --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
+        --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPh_seq30k.tsv \\
+        --model_name kuleshov-group/caduceus-ph_seqlen-131k_d_model-256_n_layer-16 \\
+        --gpu 2
 """
 
 import sys
@@ -50,26 +53,21 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-logger = logging.getLogger('NT_zeroshot')
+logger = logging.getLogger('zeroshot_caduceus')
 
 
 # ============================================================================
-# Scoring
+# Variant token index
 # ============================================================================
 
-def kmerize(sequence, k):
-    return ' '.join([sequence[i:i+k] for i in range(0, len(sequence), k)])
-
-
-def get_variant_token_idx(seq_len, k):
+def get_variant_token_idx(seq_len):
     """
-    Token index (in model input) of the k-mer containing the variant.
-    Sequences are centered on the variant at nucleotide position seq_len//2.
-    With k-mer tokenization: kmer_idx = (seq_len//2) // k
+    Token index (in model input) of the nucleotide at the variant position.
+    Caduceus uses single-character tokenization (1 token per nucleotide).
+    Sequences are centered on the variant at nucleotide position seq_len//2 (0-indexed).
     +1 for [CLS] token prepended by the tokenizer.
     """
-    kmer_idx = (seq_len // 2) // k
-    return kmer_idx + 1  # +1 for [CLS]
+    return (seq_len // 2) + 1  # +1 for [CLS]
 
 
 # ============================================================================
@@ -78,15 +76,14 @@ def get_variant_token_idx(seq_len, k):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Zero-shot NT masked marginal scoring.',
+        description='Zero-shot Caduceus masked marginal scoring.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python evaluation/NT_zeroshot.py \\
-      --input  data/sequences/ClinVar.260309only.seq12k.tsv \\
-      --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2.tsv \\
-      --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \\
-      --gpu 0
+  python evaluation/zeroshot_caduceus.py \\
+      --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
+      --output results/predictions/ClinVar.260309only.seq30k/zeroshot_Caduceus_seq30k.tsv \\
+      --gpu 2
         """
     )
     parser.add_argument('--input',      '-i', required=True,
@@ -94,16 +91,12 @@ Example:
     parser.add_argument('--output',     '-o', required=True,
                         help='Output TSV path')
     parser.add_argument('--model_name', '-m',
-                        default='InstaDeepAI/nucleotide-transformer-v2-500m-multi-species',
-                        help='HuggingFace model name')
+                        default='kuleshov-group/caduceus-ps_seqlen-131k_d_model-256_n_layer-16',
+                        help='HuggingFace model name (default: Caduceus-PS)')
     parser.add_argument('--gpu',        '-g', type=int, default=0,
                         help='GPU id, -1 for CPU (default: 0)')
-    parser.add_argument('--batch_size', '-b', type=int, default=8,
-                        help='Batch size for inference (default: 8)')
     parser.add_argument('--threshold',  '-t', type=float, default=0.5,
                         help='Threshold for predicted_label (default: 0.5)')
-    parser.add_argument('--k',          type=int, default=6,
-                        help='K-mer size, must match model (default: 6)')
     args = parser.parse_args()
 
     # Device
@@ -120,12 +113,13 @@ Example:
     logger.info(f"Loaded {len(df)} variants")
 
     seq_len = len(df['alt_sequence'].iloc[0])
-    variant_token_idx = get_variant_token_idx(seq_len, args.k)
-    logger.info(f"Sequence length: {seq_len} nt | k={args.k} | "
+    variant_token_idx = get_variant_token_idx(seq_len)
+    logger.info(f"Sequence length: {seq_len} nt | single-char tokenization | "
                 f"variant token index: {variant_token_idx}")
 
-    ref_seqs_kmer = df['ref_sequence'].apply(lambda x: kmerize(x, args.k)).tolist()
-    alt_seqs_kmer = df['alt_sequence'].apply(lambda x: kmerize(x, args.k)).tolist()
+    # Caduceus takes raw sequences (no kmerization)
+    ref_seqs = df['ref_sequence'].tolist()
+    alt_seqs = df['alt_sequence'].tolist()
 
     # Load model
     logger.info(f"Loading model: {args.model_name}")
@@ -164,7 +158,7 @@ Example:
     mask_token_id = tokenizer.mask_token_id
     n = len(df)
     n_written = 0
-    batch_rows = []  # accumulate rows until checkpoint
+    batch_rows = []
 
     logger.info(f"Computing masked marginal scores (checkpoint every {checkpoint_every} samples)...")
 
@@ -175,13 +169,18 @@ Example:
             if vid in already_scored:
                 continue
 
-            ref_kmer = ref_seqs_kmer[idx]
-            alt_kmer = alt_seqs_kmer[idx]
+            ref_seq = ref_seqs[idx]
+            alt_seq = alt_seqs[idx]
 
-            ref_enc = tokenizer([ref_kmer], add_special_tokens=True,
-                                return_tensors='pt', truncation=True, max_length=2048)
-            alt_enc = tokenizer([alt_kmer], add_special_tokens=True,
-                                return_tensors='pt', truncation=True, max_length=2048)
+            # Caduceus: tokenize raw sequence, no kmerization
+            # Note: Caduceus tokenizer does not return attention_mask —
+            # the SSM architecture does not use it (no padding needed for single sequences)
+            ref_enc = tokenizer([ref_seq], add_special_tokens=True,
+                                return_tensors='pt', truncation=True,
+                                max_length=131072)
+            alt_enc = tokenizer([alt_seq], add_special_tokens=True,
+                                return_tensors='pt', truncation=True,
+                                max_length=131072)
 
             ref_ids = ref_enc['input_ids'].to(device)
             alt_ids = alt_enc['input_ids'].to(device)
@@ -190,8 +189,7 @@ Example:
             vtok = min(variant_token_idx, masked_ids.shape[1] - 1)
             masked_ids[:, vtok] = mask_token_id
 
-            attention_mask = alt_enc['attention_mask'].to(device)
-            outputs = model(input_ids=masked_ids, attention_mask=attention_mask)
+            outputs = model(input_ids=masked_ids)
             log_probs = torch.log_softmax(outputs.logits[0, vtok, :], dim=-1)
 
             log_p_alt = log_probs[alt_ids[0, vtok]].item()
@@ -201,15 +199,15 @@ Example:
             pred_label = int(path_score >= args.threshold)
 
             row = {
-                'variant_id':          vid,
-                'chromosome':          df['chromosome'].iloc[idx],
-                'position':            df['position'].iloc[idx],
-                'ref_allele':          df['ref_allele'].iloc[idx],
-                'alt_allele':          df['alt_allele'].iloc[idx],
-                'pathogenicity_score': path_score,
-                'predicted_label':     pred_label,
-                'log_p_alt':           log_p_alt,
-                'log_p_ref':           log_p_ref,
+                'variant_id':           vid,
+                'chromosome':           df['chromosome'].iloc[idx],
+                'position':             df['position'].iloc[idx],
+                'ref_allele':           df['ref_allele'].iloc[idx],
+                'alt_allele':           df['alt_allele'].iloc[idx],
+                'pathogenicity_score':  path_score,
+                'predicted_label':      pred_label,
+                'log_p_alt':            log_p_alt,
+                'log_p_ref':            log_p_ref,
                 'log_likelihood_ratio': log_ratio,
             }
             if has_label:
@@ -253,7 +251,7 @@ Example:
         'input':             args.input,
         'n_variants_total':  len(full_df),
         'n_variants_new':    n_written,
-        'k':                 args.k,
+        'tokenization':      'single_char',
         'variant_token_idx': variant_token_idx,
         'auc':               float(auc) if auc is not None else None,
         'threshold':         args.threshold,

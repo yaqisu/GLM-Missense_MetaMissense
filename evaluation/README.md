@@ -15,7 +15,8 @@ evaluation/
 │   ├── plots.py                #   all plotting functions
 │   └── __init__.py
 │
-├── NT_zeroshot.py              # Zero-shot NT scoring via masked marginal LLR
+├── zeroshot_nt.py              # Zero-shot NT-1/NT-2 scoring via masked marginal LLR (6-mer tokenization)
+├── zeroshot_caduceus.py        # Zero-shot Caduceus scoring via masked marginal LLR (single-char tokenization)
 ├── concat_sequences.py         # Concatenate all classes into one dataset TSV
 ├── extract_subset_ids.py       # Generate subset IDs files
 ├── annotate_dbnsfp.py          # Annotate variants with dbNSFP via tabix
@@ -82,34 +83,78 @@ python evaluation/annotate_dbnsfp.py \
 
 ---
 
-### Step 2c — Zero-shot scoring with pretrained NT (no fine-tuning)
+### Step 2c — Zero-shot scoring with pretrained genomic LMs (no fine-tuning)
 
-Scores variants using the pretrained NT backbone directly, without any
-fine-tuned weights. Uses masked marginal log-likelihood ratio as the
-pathogenicity signal. Output format is identical to `score_variants.py`
-so it feeds into `merge_predictions.py` without modification.
+Scores variants using pretrained model backbones directly, without any fine-tuned
+weights. Uses masked marginal log-likelihood ratio as the pathogenicity signal.
+Output format is identical to `score_variants.py` so all outputs feed into
+`merge_predictions.py` without modification.
+
+Two scripts are provided because NT and Caduceus have different tokenization schemes:
+- **`zeroshot_nt.py`**: NT-1 and NT-2 use 6-mer tokenization (`--k 6`); sequences
+  must be kmerized before passing to the tokenizer.
+- **`zeroshot_caduceus.py`**: Caduceus uses single-character tokenization (1 token
+  per nucleotide); sequences are passed as raw strings, no kmerization.
+
+#### NT-1 and NT-2
 
 ```bash
-# NT-2 (multi-species, 500M) — same backbone as our fine-tuned model
-python evaluation/NT_zeroshot.py \
-    --input  data/sequences/ClinVar.260309only.seq12k.tsv \
-    --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2.tsv \
+# NT-2 (multi-species, 500M) — same backbone as our fine-tuned model — seq12k
+python evaluation/zeroshot_nt.py \
+    --input  data/sequences/ClinVar.260309only.missense.hg38.seq12k.tsv \
+    --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2_seq12k.tsv \
     --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \
     --gpu 2
 
-# NT-1 (human-only, 500M) — for additional comparison
-python evaluation/NT_zeroshot.py \
-    --input  data/sequences/ClinVar.260309only.seq12k.tsv \
-    --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT1.tsv \
+# NT-2 — seq6k
+python evaluation/zeroshot_nt.py \
+    --input  data/sequences/ClinVar.260309only.missense.hg38.seq6k.tsv \
+    --output results/predictions/ClinVar.260309only.seq6k/zeroshot_NT2_seq6k.tsv \
+    --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \
+    --gpu 2
+
+# NT-1 (human-only, 500M) — seq6k
+python evaluation/zeroshot_nt.py \
+    --input  data/sequences/ClinVar.260309only.missense.hg38.seq6k.tsv \
+    --output results/predictions/ClinVar.260309only.seq6k/zeroshot_NT1_seq6k.tsv \
     --model_name InstaDeepAI/nucleotide-transformer-500m-human-ref \
-    --gpu -1
+    --gpu 2
+```
+
+#### Caduceus
+
+```bash
+
+pip install mamba-ssm --no-build-isolation --break-system-packages
+
+# Caduceus-PS (reverse-complement equivariant) — seq30k
+python evaluation/zeroshot_caduceus.py \
+    --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \
+    --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPS_seq30k.tsv \
+    --model_name kuleshov-group/caduceus-ps_seqlen-131k_d_model-256_n_layer-16 \
+    --gpu 2
+
+# Caduceus-Ph (RC augmented) — seq30k
+python evaluation/zeroshot_caduceus.py \
+    --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \
+    --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPh_seq30k.tsv \
+    --model_name kuleshov-group/caduceus-ph_seqlen-131k_d_model-256_n_layer-16 \
+    --gpu 2
+```
+
+**GPU memory**: NT 500M uses ~2–3 GB; Caduceus uses ~1–2 GB. It is safe to share
+a GPU with another running job as long as there is enough free memory — check with
+`nvidia-smi` before running. If free memory is tight, use `--gpu -1` to run on
+CPU. To restrict to a specific GPU:
+```bash
+CUDA_VISIBLE_DEVICES=2 python evaluation/zeroshot_nt.py --gpu 0 ...
 ```
 
 **Checkpointing and resume**: scores are flushed to the output TSV every 100
 variants. If the job is interrupted, rerun the exact same command — already-scored
 variants are detected by `variant_id` and skipped automatically.
 
-**Output columns**:
+**Output columns** (identical for both scripts):
 
 | Column | Description |
 |--------|-------------|
@@ -296,6 +341,8 @@ Defined in `core/filters.py` → `CONSERVATION_COLS`:
   included by default (`--include_missing`; disable with `--no-include_missing`).
 - **Multi-column AF filter**: passing multiple `--col` values requires a variant
   to be rare in *all* specified AF populations simultaneously.
-- **Uniform scoring format**: `score_variants.py` (fine-tuned) and `NT_zeroshot.py`
-  (zero-shot) write identical TSV schemas so all scoring outputs are
-  interchangeable as inputs to `merge_predictions.py` and downstream eval scripts.
+- **Uniform scoring format**: `score_variants.py` (fine-tuned), `zeroshot_nt.py` (NT zero-shot),
+  and `zeroshot_caduceus.py` (Caduceus zero-shot) all write identical TSV schemas so all
+  scoring outputs are interchangeable as inputs to `merge_predictions.py` and downstream
+  eval scripts. The scripts differ only in tokenization: NT uses 6-mers, Caduceus uses
+  single characters.

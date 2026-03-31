@@ -52,7 +52,7 @@ bash preprocessing/process_clinvar.sh \
 bash preprocessing/subtract_new_variants.sh
 
 # Step 3 — Generate sequences and train/val splits
-bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 12k
+bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 6k,12k,30k
 ```
 
 > Each script skips already-existing output files, so it is safe to re-run after interruptions.
@@ -66,7 +66,7 @@ bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 12k
 All dataset definitions live here. Each row defines one output dataset — which BED files go into class 0 (benign), class 1 (pathogenic), or are left unlabeled. Pass it explicitly to both scripts with `-c`:
 
 ```bash
-bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 12k
+bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 6k,12k,30k
 ```
 
 To use a different set of datasets (e.g. a new timestamp, a different label scheme), copy `config.tsv`, edit it, and pass the new path with `-c`.
@@ -162,7 +162,17 @@ bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv [-s <sizes>]
 | `-c <config>` | Config file path. Required. Edit to add/change datasets. |
 | `-s <sizes>` | Comma-separated window sizes in units of k. Accepts predefined names (`6k`, `12k`, `30k`, `60k`, `130k`) or any custom value like `11.7k` (= 11,700 bp). Default: `12k`. |
 
-For each row in the config, the script runs `extract_variant_sequences.py` for each BED file × the requested window sizes, writing labeled (or unlabeled) TSVs to `data/sequences/`. For rows with `split=yes`, it then combines the per-class TSVs and splits by chromosome into train/val pairs in `data/splits/`. Rows with `split=no` (e.g. benchmark data) produce sequences only.
+For each row in the config, the script runs `extract_variant_sequences.py` for each BED file × the requested window sizes, writing labeled (or unlabeled) TSVs to `data/sequences/`. Then:
+
+- **`split=yes`**: combines all per-class TSVs and splits by chromosome into train/val pairs in `data/splits/`.
+- **`split=no`**: concatenates all per-class TSVs into a single file in `data/sequences/` — e.g. `ClinVar.260309only.missense.hg38.seq12k.tsv` — ready for zero-shot scoring or evaluation. No train/val split is produced.
+
+So running with `-s 6k,12k,30k` on the `260309only` config rows produces:
+```
+data/sequences/ClinVar.260309only.missense.hg38.seq6k.tsv
+data/sequences/ClinVar.260309only.missense.hg38.seq12k.tsv
+data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv
+```
 
 | Suffix | Flank (each side) | Total window |
 |--------|------------------|--------------|
@@ -207,6 +217,6 @@ mv Homo_sapiens.GRCh38.dna.primary_assembly.fa data/reference/
 | `data/vcf/` | No | Downloaded ClinVar VCFs; regenerate with `process_clinvar.sh` |
 | `data/bed/` | Yes | ClinVar BED files for both timestamps + `260309only` (~few MB each) |
 | `data/reference/` | No | Reference genome (~3 GB); download instructions in Step 3 |
-| `data/sequences/` | No | Labeled/unlabeled sequence TSVs; regenerate with `generate_datasets.sh` |
-| `data/splits/` | No | Train/val split files (split=yes rows only); regenerate with `generate_datasets.sh` |
+| `data/sequences/` | No | Per-class TSVs + concatenated files for `split=no` rows; regenerate with `generate_datasets.sh` |
+| `data/splits/` | No | Train/val split files (`split=yes` rows only); regenerate with `generate_datasets.sh` |
 | `preprocessing/config.tsv` | Yes | Dataset definitions; edit to add new timestamps or datasets |
