@@ -26,7 +26,7 @@ it feeds into evaluation/merge_predictions.py without modification.
 Usage (run from repo root):
     python evaluation/zeroshot_caduceus.py \\
         --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
-        --output results/predictions/ClinVar.260309only.seq30k/zeroshot_Caduceus_seq30k.tsv \\
+        --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPS_seq30k.tsv \\
         --gpu 2
 
     # Caduceus-Ph variant
@@ -82,7 +82,7 @@ def main():
 Example:
   python evaluation/zeroshot_caduceus.py \\
       --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
-      --output results/predictions/ClinVar.260309only.seq30k/zeroshot_Caduceus_seq30k.tsv \\
+      --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPS_seq30k.tsv \\
       --gpu 2
         """
     )
