@@ -142,14 +142,6 @@ python evaluation/zeroshot_caduceus.py \
     --gpu 2
 ```
 
-**GPU memory**: NT 500M uses ~2–3 GB; Caduceus uses ~1–2 GB. It is safe to share
-a GPU with another running job as long as there is enough free memory — check with
-`nvidia-smi` before running. If free memory is tight, use `--gpu -1` to run on
-CPU. To restrict to a specific GPU:
-```bash
-CUDA_VISIBLE_DEVICES=2 python evaluation/zeroshot_nt.py --gpu 0 ...
-```
-
 **Checkpointing and resume**: scores are flushed to the output TSV every 100
 variants. If the job is interrupted, rerun the exact same command — already-scored
 variants are detected by `variant_id` and skipped automatically.
