@@ -15,6 +15,7 @@ evaluation/
 │   ├── plots.py                #   all plotting functions
 │   └── __init__.py
 │
+├── NT_zeroshot.py              # Zero-shot NT scoring via masked marginal LLR
 ├── concat_sequences.py         # Concatenate all classes into one dataset TSV
 ├── extract_subset_ids.py       # Generate subset IDs files
 ├── annotate_dbnsfp.py          # Annotate variants with dbNSFP via tabix
@@ -53,7 +54,7 @@ python evaluation/extract_subset_ids.py \
 
 ---
 
-### Step 2a — Score variants with our model
+### Step 2a — Score variants with our fine-tuned model
 
 ```bash
 python scoring/score_variants.py \
@@ -81,11 +82,60 @@ python evaluation/annotate_dbnsfp.py \
 
 ---
 
+### Step 2c — Zero-shot scoring with pretrained NT (no fine-tuning)
+
+Scores variants using the pretrained NT backbone directly, without any
+fine-tuned weights. Uses masked marginal log-likelihood ratio as the
+pathogenicity signal. Output format is identical to `score_variants.py`
+so it feeds into `merge_predictions.py` without modification.
+
+```bash
+# NT-2 (multi-species, 500M) — same backbone as our fine-tuned model
+python evaluation/NT_zeroshot.py \
+    --input  data/sequences/ClinVar.260309only.seq12k.tsv \
+    --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2.tsv \
+    --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \
+    --gpu 2
+
+# NT-1 (human-only, 500M) — for additional comparison
+python evaluation/NT_zeroshot.py \
+    --input  data/sequences/ClinVar.260309only.seq12k.tsv \
+    --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT1.tsv \
+    --model_name InstaDeepAI/nucleotide-transformer-500m-human-ref \
+    --gpu -1
+```
+
+**Checkpointing and resume**: scores are flushed to the output TSV every 100
+variants. If the job is interrupted, rerun the exact same command — already-scored
+variants are detected by `variant_id` and skipped automatically.
+
+**Output columns**:
+
+| Column | Description |
+|--------|-------------|
+| `variant_id`, `chromosome`, `position`, `ref_allele`, `alt_allele` | Variant identifiers (passed through from input) |
+| `pathogenicity_score` | `sigmoid(-(log P(alt\|ctx) - log P(ref\|ctx)))`, range 0–1, higher = more pathogenic |
+| `predicted_label` | Binary call at `--threshold` (default 0.5) |
+| `true_label` | Copied from input `label` column if present |
+| `log_p_alt` | log P(alt token \| masked context) — intermediate, not used by eval scripts |
+| `log_p_ref` | log P(ref token \| masked context) — intermediate, not used by eval scripts |
+| `log_likelihood_ratio` | `log_p_alt - log_p_ref` — intermediate, not used by eval scripts |
+
+A `.summary.json` file is written alongside each output TSV with model name,
+variant count, variant token index, and AUC (if labels present).
+
+---
+
 ### Step 3 — Merge predictions
+
+Pass all prediction TSVs you want to compare via `--ours` (can be repeated)
+or rely on the directory convention expected by `merge_predictions.py`.
 
 ```bash
 python evaluation/merge_predictions.py \
     --ours    results/predictions/ClinVar.260309only.seq12k/ours.tsv \
+    --zeroshot results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2.tsv \
+    --zeroshot results/predictions/ClinVar.260309only.seq12k/zeroshot_NT1.tsv \
     --dbnsfp  results/predictions/ClinVar.260309only.seq12k/dbnsfp.tsv \
     --outdir  results/predictions/ClinVar.260309only.seq12k
 # Outputs: merged.tsv, missing_in_dbnsfp.tsv, dbnsfp_column_coverage.tsv
@@ -246,3 +296,6 @@ Defined in `core/filters.py` → `CONSERVATION_COLS`:
   included by default (`--include_missing`; disable with `--no-include_missing`).
 - **Multi-column AF filter**: passing multiple `--col` values requires a variant
   to be rare in *all* specified AF populations simultaneously.
+- **Uniform scoring format**: `score_variants.py` (fine-tuned) and `NT_zeroshot.py`
+  (zero-shot) write identical TSV schemas so all scoring outputs are
+  interchangeable as inputs to `merge_predictions.py` and downstream eval scripts.
