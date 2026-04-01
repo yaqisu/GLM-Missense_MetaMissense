@@ -5,7 +5,7 @@ results/
 !results/figures/
 !results/figures.ipynb
 !results/results.tsv
-
+!results/predictions/ClinVar.260309only/merge_config.tsv
 scoring/model/
 !scoring/model/model_config.json
 
