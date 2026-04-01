@@ -207,13 +207,13 @@ python evaluation/merge.py \
 ```
 
 Downstream eval scripts read `merge_config.tsv` directly via `--config` to
-know which columns to highlight — no intermediate JSON file needed.
+know which columns to highlight.
 
 ---
 
 ### Step 4 — Evaluate
 
-A single script handles full evaluation, filtered evaluation, and stratified
+`evaluate.py` script handles full evaluation, filtered evaluation, and stratified
 evaluation. Pass `--config` pointing to `merge_config.tsv` so the script knows
 which models to highlight. Models with `highlight=yes` always appear in plots
 in bold, regardless of whether they rank in the top N.

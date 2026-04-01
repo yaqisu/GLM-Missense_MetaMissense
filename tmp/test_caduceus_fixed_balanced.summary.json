@@ -1,0 +1,10 @@
+{
+  "model_name": "kuleshov-group/caduceus-ps_seqlen-131k_d_model-256_n_layer-16",
+  "input": "tmp/test100_balanced.tsv",
+  "n_variants_total": 100,
+  "n_variants_new": 100,
+  "tokenization": "single_char",
+  "variant_token_idx": 14999,
+  "auc": 0.5264,
+  "threshold": 0.5
+}

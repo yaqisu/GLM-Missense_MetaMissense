@@ -191,7 +191,7 @@ def run_evaluation(shared: pd.DataFrame,
     metrics_df = build_metrics_df(our_metrics, other_metrics)
     metrics_df.to_csv(out_dir / 'all_metrics.tsv', sep='\t', index=False)
 
-    summary = build_summary(metrics_df, anchor_cols, top_n)
+    summary = build_summary(metrics_df, our_col, anchor_cols, top_n)
     summary.to_csv(out_dir / 'summary_comparison.tsv', sep='\t', index=False)
     print(summary.to_string(index=False))
 
@@ -219,11 +219,11 @@ def run_evaluation(shared: pd.DataFrame,
                    bold_cols=highlighted_cols)
     plot_auroc_barplot(metrics_df, our_auroc, anchor_cols,
                        plots_dir / 'auroc_barplot.png',
-                       highlight_cols=highlighted_cols)
+                       our_col=our_col, highlight_cols=highlighted_cols)
     plot_metrics_heatmap(metrics_df, plots_dir / 'metrics_heatmap.png',
-                         highlight_cols=highlighted_cols)
+                         our_col=our_col, highlight_cols=highlighted_cols)
     plot_auroc_scatter(metrics_df, our_auroc, plots_dir / 'auroc_scatter.png',
-                       highlight_cols=highlighted_cols)
+                       our_col=our_col, highlight_cols=highlighted_cols)
 
     return our_metrics
 
@@ -242,6 +242,8 @@ def main():
     highlighted_cols = cfg_info['highlighted_cols']
     print(f'  Primary model (our_col): {our_col}')
     print(f'  Highlighted cols: {highlighted_cols}')
+
+    args.outdir.mkdir(parents=True, exist_ok=True)
 
     anchor_cols = [c.strip() for c in args.anchor_cols.split(',')]
     skip        = SKIP_COLS | {args.label_col}

@@ -14,18 +14,18 @@ from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve
 from .metrics import try_numeric, flip_if_inverse
 
 COLORS = {
-    "ours":  "#d62728",
-    "revel": "#ff7f0e",
-    "alpha": "#2ca02c",
-    "other": "#4878d0",
+    "our_model": "#d62728",
+    "revel":     "#ff7f0e",
+    "alpha":     "#2ca02c",
+    "other":     "#4878d0",
 }
 
 
-def col_color(col: str) -> str:
+def col_color(col: str, our_col: str = "") -> str:
+    if col == our_col:               return COLORS["our_model"]
     c = col.lower()
-    if c == "ours":              return COLORS["ours"]
-    if "revel" in c:             return COLORS["revel"]
-    if "alphamissense" in c:     return COLORS["alpha"]
+    if "revel" in c:                 return COLORS["revel"]
+    if "alphamissense" in c:         return COLORS["alpha"]
     return COLORS["other"]
 
 
@@ -46,8 +46,9 @@ def _plot_curve(ax, df, col, labels, curve_fn, color, lw=1.0, label_suffix=""):
 
 def plot_roc_curves(df: pd.DataFrame, top_cols: list, our_col: str,
                     label_col: str, out_path: Path, n: int = 20,
-                    subtitle: str = "") -> None:
+                    subtitle: str = "", bold_cols: list = None) -> None:
     labels = df[label_col]
+    bold_cols = bold_cols or []
     fig, ax = plt.subplots(figsize=(10, 8))
 
     s = try_numeric(df[our_col])
@@ -55,12 +56,12 @@ def plot_roc_curves(df: pd.DataFrame, top_cols: list, our_col: str,
     s_f, _ = flip_if_inverse(s[mask], labels[mask])
     fpr, tpr, _ = roc_curve(labels[mask], s_f)
     auc = roc_auc_score(labels[mask], s_f)
-    ax.plot(fpr, tpr, color=COLORS["ours"], lw=2.5, zorder=10,
-            label=f"Ours ({auc:.3f})")
+    ax.plot(fpr, tpr, color=COLORS["our_model"], lw=2.5, zorder=10,
+            label=f"{our_col} ({auc:.3f})")
 
     for col in top_cols[:n]:
-        _plot_curve(ax, df, col, labels, roc_curve, col_color(col),
-                    lw=2.0 if col.lower() in ("revel_score", "alphamissense_score") else 1.0)
+        lw = 2.0 if col in bold_cols or col.lower() in ("revel_score", "alphamissense_score") else 1.0
+        _plot_curve(ax, df, col, labels, roc_curve, col_color(col, our_col), lw=lw)
 
     ax.plot([0, 1], [0, 1], "k--", lw=0.8)
     ax.set_xlabel("False Positive Rate", fontsize=12)
@@ -78,8 +79,9 @@ def plot_roc_curves(df: pd.DataFrame, top_cols: list, our_col: str,
 
 def plot_pr_curves(df: pd.DataFrame, top_cols: list, our_col: str,
                    label_col: str, out_path: Path, n: int = 20,
-                   subtitle: str = "") -> None:
+                   subtitle: str = "", bold_cols: list = None) -> None:
     labels = df[label_col]
+    bold_cols = bold_cols or []
     fig, ax = plt.subplots(figsize=(10, 8))
 
     s = try_numeric(df[our_col])
@@ -88,12 +90,12 @@ def plot_pr_curves(df: pd.DataFrame, top_cols: list, our_col: str,
     rec, prec, _ = precision_recall_curve(labels[mask], s_f)
     from sklearn.metrics import average_precision_score
     auc = average_precision_score(labels[mask], s_f)
-    ax.plot(rec, prec, color=COLORS["ours"], lw=2.5, zorder=10,
-            label=f"Ours ({auc:.3f})")
+    ax.plot(rec, prec, color=COLORS["our_model"], lw=2.5, zorder=10,
+            label=f"{our_col} ({auc:.3f})")
 
     for col in top_cols[:n]:
-        _plot_curve(ax, df, col, labels, precision_recall_curve, col_color(col),
-                    lw=2.0 if col.lower() in ("revel_score", "alphamissense_score") else 1.0)
+        lw = 2.0 if col in bold_cols or col.lower() in ("revel_score", "alphamissense_score") else 1.0
+        _plot_curve(ax, df, col, labels, precision_recall_curve, col_color(col, our_col), lw=lw)
 
     ax.set_xlabel("Recall", fontsize=12)
     ax.set_ylabel("Precision", fontsize=12)
@@ -109,20 +111,22 @@ def plot_pr_curves(df: pd.DataFrame, top_cols: list, our_col: str,
 
 
 def plot_auroc_barplot(metrics_df: pd.DataFrame, our_auroc: float,
-                       anchor_cols: list, out_path: Path, n: int = 20) -> None:
-    top = (metrics_df[metrics_df["column"] != "ours"]
+                       anchor_cols: list, out_path: Path, n: int = 20,
+                       our_col: str = "", highlight_cols: list = None) -> None:
+    highlight_cols = highlight_cols or []
+    top = (metrics_df[~metrics_df["column"].isin([our_col] + highlight_cols)]
            .dropna(subset=["auroc"]).nlargest(n, "auroc"))
-    our_row = metrics_df[metrics_df["column"] == "ours"]
+    our_rows = metrics_df[metrics_df["column"].isin([our_col] + highlight_cols)]
 
-    plot_df = pd.concat([our_row, top]).drop_duplicates("column").reset_index(drop=True)
-    colors  = [col_color(c) for c in plot_df["column"]]
+    plot_df = pd.concat([our_rows, top]).drop_duplicates("column").reset_index(drop=True)
+    colors  = [col_color(c, our_col) for c in plot_df["column"]]
 
     fig, ax = plt.subplots(figsize=(12, max(6, len(plot_df) * 0.4)))
     bars = ax.barh(plot_df["column"], plot_df["auroc"], color=colors, edgecolor="white", lw=0.4)
-    ax.axvline(our_auroc, color=COLORS["ours"], lw=1.5, ls="--", alpha=0.7)
+    ax.axvline(our_auroc, color=COLORS["our_model"], lw=1.5, ls="--", alpha=0.7)
     ax.axvline(0.5, color="gray", lw=0.8, ls=":")
     ax.set_xlabel("AUROC", fontsize=11)
-    ax.set_title(f"AUROC Comparison — Top {n} + Ours", fontsize=12)
+    ax.set_title(f"AUROC Comparison — Top {n} + highlighted", fontsize=12)
     ax.invert_yaxis()
     for bar, val in zip(bars, plot_df["auroc"]):
         if not np.isnan(val):
@@ -134,12 +138,15 @@ def plot_auroc_barplot(metrics_df: pd.DataFrame, our_auroc: float,
     print(f"  Saved: {out_path}")
 
 
-def plot_metrics_heatmap(metrics_df: pd.DataFrame, out_path: Path, n: int = 20) -> None:
+def plot_metrics_heatmap(metrics_df: pd.DataFrame, out_path: Path, n: int = 20,
+                         our_col: str = "", highlight_cols: list = None) -> None:
+    highlight_cols = highlight_cols or []
+    pinned = [our_col] + highlight_cols
     metric_cols = ["auroc", "prauc", "pauroc_fpr10", "mcc", "f1", "balanced_acc"]
-    our_row = metrics_df[metrics_df["column"] == "ours"]
-    top     = (metrics_df[metrics_df["column"] != "ours"]
-               .dropna(subset=["auroc"]).nlargest(n, "auroc"))
-    top     = pd.concat([our_row, top]).drop_duplicates("column").reset_index(drop=True)
+    pinned_rows = metrics_df[metrics_df["column"].isin(pinned)]
+    top = (metrics_df[~metrics_df["column"].isin(pinned)]
+           .dropna(subset=["auroc"]).nlargest(n, "auroc"))
+    top = pd.concat([pinned_rows, top]).drop_duplicates("column").reset_index(drop=True)
 
     data    = top[metric_cols].values.astype(float)
     fig, ax = plt.subplots(figsize=(10, max(5, len(top) * 0.4)))
@@ -148,7 +155,10 @@ def plot_metrics_heatmap(metrics_df: pd.DataFrame, out_path: Path, n: int = 20) 
     ax.set_xticklabels(metric_cols, rotation=30, ha="right", fontsize=9)
     ax.set_yticks(range(len(top)))
     ax.set_yticklabels(top["column"], fontsize=8)
-    ax.get_yticklabels()[0].set_color("red")
+    # highlight pinned rows in red
+    for i, col in enumerate(top["column"]):
+        if col in pinned:
+            ax.get_yticklabels()[i].set_color("red")
     for i in range(len(top)):
         for j in range(len(metric_cols)):
             val = data[i, j]
@@ -156,15 +166,18 @@ def plot_metrics_heatmap(metrics_df: pd.DataFrame, out_path: Path, n: int = 20) 
                 ax.text(j, i, f"{val:.2f}", ha="center", va="center",
                         fontsize=7, color="black")
     plt.colorbar(im, ax=ax, shrink=0.6)
-    ax.set_title(f"Metrics Heatmap — Top {n} + Ours", fontsize=12)
+    ax.set_title(f"Metrics Heatmap — Top {n} + highlighted", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     print(f"  Saved: {out_path}")
 
 
-def plot_auroc_scatter(metrics_df: pd.DataFrame, our_auroc: float, out_path: Path) -> None:
-    df = metrics_df[metrics_df["column"] != "ours"].dropna(subset=["auroc"])
+def plot_auroc_scatter(metrics_df: pd.DataFrame, our_auroc: float, out_path: Path,
+                       our_col: str = "", highlight_cols: list = None) -> None:
+    highlight_cols = highlight_cols or []
+    pinned = set([our_col] + highlight_cols)
+    df = metrics_df[~metrics_df["column"].isin(pinned)].dropna(subset=["auroc"])
     fig, ax = plt.subplots(figsize=(9, 6))
     sc = ax.scatter(df["n_variants"], df["auroc"],
                     c=df["auroc"], cmap="RdYlGn", vmin=0.4, vmax=1.0,
@@ -172,12 +185,12 @@ def plot_auroc_scatter(metrics_df: pd.DataFrame, our_auroc: float, out_path: Pat
     for _, row in df[df["column"].str.lower()
                      .isin(["revel_score", "alphamissense_score"])].iterrows():
         ax.scatter(row["n_variants"], row["auroc"],
-                   color=col_color(row["column"]), s=150, zorder=5,
+                   color=col_color(row["column"], our_col), s=150, zorder=5,
                    edgecolors="black", lw=1)
         ax.annotate(row["column"], (row["n_variants"], row["auroc"]),
                     fontsize=8, xytext=(5, 3), textcoords="offset points")
-    ax.axhline(our_auroc, color=COLORS["ours"], ls="--", lw=1.5,
-               label=f"Ours ({our_auroc:.3f})")
+    ax.axhline(our_auroc, color=COLORS["our_model"], ls="--", lw=1.5,
+               label=f"{our_col} ({our_auroc:.3f})")
     ax.axhline(0.5, color="gray", ls=":", lw=1)
     plt.colorbar(sc, ax=ax, label="AUROC")
     ax.set_xlabel("N variants with score", fontsize=11)
@@ -191,11 +204,13 @@ def plot_auroc_scatter(metrics_df: pd.DataFrame, our_auroc: float, out_path: Pat
 
 
 def plot_comparison_across_strata(comparison_df: pd.DataFrame,
-                                  out_path: Path, metric: str = "auroc") -> None:
+                                  out_path: Path, metric: str = "auroc",
+                                  bold_cols: list = None) -> None:
     """
     Bar chart comparing one metric across multiple strata (filter/stratify conditions)
     for each method. comparison_df must have columns: [stratum, column, <metric>].
     """
+    bold_cols = bold_cols or []
     strata  = comparison_df["stratum"].unique().tolist()
     methods = comparison_df["column"].unique().tolist()
 
@@ -205,11 +220,21 @@ def plot_comparison_across_strata(comparison_df: pd.DataFrame,
     fig, ax = plt.subplots(figsize=(max(10, len(methods) * 0.5), 6))
     for i, stratum in enumerate(strata):
         sub  = comparison_df[comparison_df["stratum"] == stratum].set_index("column")
-        vals = [sub.loc[m, metric] if m in sub.index else np.nan for m in methods]
+        vals = []
+        for m in methods:
+            if m not in sub.index:
+                vals.append(np.nan)
+            else:
+                v = sub.loc[m, metric]
+                vals.append(float(v.iloc[0]) if hasattr(v, 'iloc') else float(v))
         ax.bar(x + i * width, vals, width, label=stratum, alpha=0.85)
 
     ax.set_xticks(x + width * (len(strata) - 1) / 2)
-    ax.set_xticklabels(methods, rotation=45, ha="right", fontsize=8)
+    labels = ax.set_xticklabels(methods, rotation=45, ha="right", fontsize=8)
+    for lbl in labels:
+        if lbl.get_text() in bold_cols:
+            lbl.set_fontweight("bold")
+            lbl.set_color("red")
     ax.set_ylabel(metric.upper(), fontsize=11)
     ax.set_title(f"{metric.upper()} by Stratum", fontsize=12)
     ax.axhline(0.5, color="gray", ls=":", lw=0.8)

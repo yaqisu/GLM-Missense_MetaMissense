@@ -148,7 +148,7 @@ def evaluate_all_columns(df: pd.DataFrame, labels: pd.Series,
     Evaluate our model column + all non-skipped columns.
     Returns (our_metrics_dict, list_of_dbnsfp_metric_dicts).
     """
-    our_metrics  = compute_metrics(df[our_col], labels, "ours")
+    our_metrics  = compute_metrics(df[our_col], labels, our_col)
     dbnsfp_cols  = [c for c in df.columns if c not in skip_cols]
     results, n_skipped = [], 0
     for col in dbnsfp_cols:
@@ -172,10 +172,10 @@ SUMMARY_COLS = ["column", "n_variants", "auroc", "prauc",
                 "pauroc_fpr10", "mcc", "f1", "balanced_acc"]
 
 
-def build_summary(metrics_df: pd.DataFrame, anchor_cols: list, top_n: int = 20) -> pd.DataFrame:
+def build_summary(metrics_df: pd.DataFrame, our_col: str, anchor_cols: list, top_n: int = 20) -> pd.DataFrame:
     """Extract anchor rows + top-N others into a summary table."""
-    anchor_rows = metrics_df[metrics_df["column"].isin(["ours"] + anchor_cols)]
-    top_others  = (metrics_df[~metrics_df["column"].isin(["ours"] + anchor_cols)]
+    anchor_rows = metrics_df[metrics_df["column"].isin([our_col] + anchor_cols)]
+    top_others  = (metrics_df[~metrics_df["column"].isin([our_col] + anchor_cols)]
                    .dropna(subset=["auroc"]).nlargest(top_n, "auroc"))
     return (pd.concat([anchor_rows, top_others])
               .drop_duplicates("column")[SUMMARY_COLS]

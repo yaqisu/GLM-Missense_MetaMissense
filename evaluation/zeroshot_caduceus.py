@@ -67,7 +67,7 @@ def get_variant_token_idx(seq_len):
     Sequences are centered on the variant at nucleotide position seq_len//2 (0-indexed).
     +1 for [CLS] token prepended by the tokenizer.
     """
-    return (seq_len // 2) + 1  # +1 for [CLS]
+    return (seq_len // 2)  # no CLS prepended; EOS is appended (not before variant)
 
 
 # ============================================================================
@@ -115,7 +115,7 @@ Example:
     seq_len = len(df['alt_sequence'].iloc[0])
     variant_token_idx = get_variant_token_idx(seq_len)
     logger.info(f"Sequence length: {seq_len} nt | single-char tokenization | "
-                f"variant token index: {variant_token_idx}")
+                f"variant token index: {variant_token_idx} | note: no CLS prepended")
 
     # Caduceus takes raw sequences (no kmerization)
     ref_seqs = df['ref_sequence'].tolist()
