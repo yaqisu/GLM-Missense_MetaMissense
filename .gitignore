@@ -1,12 +1,13 @@
 data/
 !data/bed
 
-results/
+results/*
 !results/figures/
 !results/figures.ipynb
 !results/results.tsv
 !results/predictions/
-results/predictions/*
+results/predictions/**
+!results/predictions/*/
 !results/predictions/**/merge_config.tsv
 
 scoring/model/
