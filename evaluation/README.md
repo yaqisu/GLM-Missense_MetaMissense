@@ -3,6 +3,24 @@
 Modular, dataset-agnostic pipeline for evaluating fine-tuned genomic language
 models against dbNSFP baseline methods on held-out ClinVar variants.
 
+Four datasets are evaluated with this pipeline:
+
+| Dataset key | Input source | Variant classes | Chromosomes | Fine-tuned scores? |
+|---|---|---|---|---|
+| `ClinVar.251103.BLBvsPLP` | `data/splits/` | PLP vs BLB | Val split only | No |
+| `ClinVar.251103.BvsP` | Reuses scores from above | P vs B | Val split only | No |
+| `ClinVar.260309only` | `data/sequences/` | PLP vs BLB | All chroms | Yes |
+| `ClinVar.260309only.BvsP` | Reuses scores from above | P vs B | All chroms | Yes |
+
+> **Why datasets 2 and 4 reuse scores**: `ClinVar.251103.BvsP` (P+B) is a strict
+> subset of `ClinVar.251103.BLBvsPLP`, and `ClinVar.260309only.BvsP` is a strict
+> subset of the full `ClinVar.260309only` run. Rather than re-running scoring,
+> `extract_subset_ids.py` generates a variant ID filter that `evaluate.py`
+> applies via `--subset`. Only Steps 1, 3, and 4 are needed for these datasets.
+
+Steps 1–5 below walk through `ClinVar.251103.BLBvsPLP` as the primary demo.
+See the subsequent sections for the three additional datasets.
+
 ---
 
 ## Directory layout
@@ -37,10 +55,9 @@ of the sequence length used for scoring. dbNSFP annotations are sequence-length
 agnostic and belong at the same level.
 
 ```
-results/predictions/ClinVar.260309only/
+results/predictions/ClinVar.251103.BLBvsPLP/
 ├── merge_config.tsv                    ← config listing all models to merge (tracked in git)
 ├── dbnsfp.tsv                          ← dbNSFP annotations (seq-length agnostic)
-├── finetune_NT2_seq12k.tsv             ← fine-tuned model predictions (seq12k input)
 ├── zeroshot_NT2_seq12k.tsv
 ├── zeroshot_NT2_seq6k.tsv
 ├── zeroshot_NT1_seq6k.tsv
@@ -51,41 +68,19 @@ results/predictions/ClinVar.260309only/
 
 ---
 
-## Step-by-step usage (example: ClinVar.260309only)
+## Step-by-step usage (primary: ClinVar.251103.BLBvsPLP)
 
-### Step 1 — Generate subset IDs file
+> **Note — no `score_variants.py`**: `ClinVar.251103` splits were used as the
+> validation set during fine-tuning, so fine-tuned model scores are excluded
+> to avoid data leakage. This dataset is zero-shot + dbNSFP only.
+>
+> **Note — no `extract_subset_ids.py`**: the BLBvsPLP validation split is
+> already the correct subset. No ID filtering is needed here.
 
-Sequence files are already produced and concatenated by
-`preprocessing/generate_datasets.sh`. The only step needed here is generating
-the P+B subset IDs file for evaluation.
-
-```bash
-python evaluation/extract_subset_ids.py \
-    --dataset ClinVar.260309only \
-    --datadir data/sequences \
-    --outfile data/sequences/ClinVar.260309only.missense.hg38.pb_ids.tsv
-```
-
----
-
-### Step 2a — Score variants with our fine-tuned model
-
-Name the output file with a descriptive label — this becomes the score column
-name in the merged table (`finetune_NT2_seq12k_score`).
-
-```bash
-python scoring/score_variants.py \
-    --input  data/sequences/ClinVar.260309only.missense.hg38.seq12k.tsv \
-    --model  scoring/model/best_model.pt \
-    --output results/predictions/ClinVar.260309only/finetune_NT2_seq12k.tsv
-```
-
----
-
-### Step 2b — Annotate variants with dbNSFP
+### Step 1 — Annotate variants with dbNSFP
 
 dbNSFP annotations only need chromosome/position/ref/alt — they are
-sequence-length agnostic. Run once per dataset.
+sequence-length agnostic. Any seq-size file works; we use seq12k. Run once per dataset.
 
 ```bash
 # Download (one-time)
@@ -95,14 +90,14 @@ curl --http1.1 -C - -o data/dbnsfp/dbNSFP5.3.1a_grch38.gz.tbi \
     https://dist.genos.us/academic/yourcode/dbNSFP5.3.1a_grch38.gz.tbi
 
 python evaluation/annotate_dbnsfp.py \
-    --variants data/sequences/ClinVar.260309only.missense.hg38.seq12k.tsv \
+    --variants data/splits/ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_validation.tsv \
     --dbnsfp   data/dbnsfp/dbNSFP5.3.1a_grch38.gz \
-    --outdir   results/predictions/ClinVar.260309only
+    --outdir   results/predictions/ClinVar.251103.BLBvsPLP
 ```
 
 ---
 
-### Step 2c — Zero-shot scoring with pretrained genomic LMs
+### Step 2 — Zero-shot scoring with pretrained genomic LMs
 
 Scores variants using pretrained model backbones directly, without any fine-tuned
 weights. Uses masked marginal log-likelihood ratio as the pathogenicity signal.
@@ -115,6 +110,292 @@ Two scripts are provided because NT and Caduceus have different tokenization:
 
 Scores are written every 100 variants. If interrupted, rerun the same command
 to resume — already-scored variants are skipped automatically by `variant_id`.
+
+#### NT-1 and NT-2
+
+```bash
+# NT-2 (multi-species, 500M) — seq12k
+python evaluation/zeroshot_nt.py \
+    --input  data/splits/ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_validation.tsv \
+    --output results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq12k.tsv \
+    --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \
+    --gpu 2
+
+# NT-2 — seq6k
+python evaluation/zeroshot_nt.py \
+    --input  data/splits/ClinVar.251103.missense.hg38.seq6k.BLBvsPLP_validation.tsv \
+    --output results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq6k.tsv \
+    --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \
+    --gpu 2
+
+# NT-1 (human-only, 500M) — seq6k
+python evaluation/zeroshot_nt.py \
+    --input  data/splits/ClinVar.251103.missense.hg38.seq6k.BLBvsPLP_validation.tsv \
+    --output results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT1_seq6k.tsv \
+    --model_name InstaDeepAI/nucleotide-transformer-500m-human-ref \
+    --gpu 2
+```
+
+#### Caduceus-PS and Caduceus-Ph
+
+```bash
+# Caduceus-PS (reverse-complement equivariant) — seq30k
+python evaluation/zeroshot_caduceus.py \
+    --input  data/splits/ClinVar.251103.missense.hg38.seq30k.BLBvsPLP_validation.tsv \
+    --output results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPS_seq30k.tsv \
+    --model_name kuleshov-group/caduceus-ps_seqlen-131k_d_model-256_n_layer-16 \
+    --gpu 2
+
+# Caduceus-Ph (RC augmented) — seq30k
+python evaluation/zeroshot_caduceus.py \
+    --input  data/splits/ClinVar.251103.missense.hg38.seq30k.BLBvsPLP_validation.tsv \
+    --output results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPh_seq30k.tsv \
+    --model_name kuleshov-group/caduceus-ph_seqlen-131k_d_model-256_n_layer-16 \
+    --gpu 2
+```
+
+**Output columns** (identical for both scripts):
+
+| Column | Description |
+|--------|-------------|
+| `variant_id`, `chromosome`, `position`, `ref_allele`, `alt_allele` | Variant identifiers |
+| `pathogenicity_score` | `sigmoid(-(log P(alt\|ctx) - log P(ref\|ctx)))`, 0–1, higher = more pathogenic |
+| `predicted_label` | Binary call at `--threshold` (default 0.5) |
+| `true_label` | From input `label` column if present |
+| `log_p_alt`, `log_p_ref`, `log_likelihood_ratio` | Intermediate values, ignored by eval scripts |
+
+---
+
+### Step 3 — Merge all predictions into one wide TSV
+
+A config file lists every model and the dbNSFP file to merge. Each model
+contributes one `{label}_score` column; dbNSFP adds all its score columns as-is.
+The first non-dbnsfp entry is the primary model — its key columns form the
+base of the output.
+
+**`merge_config.tsv`** (already committed at
+`results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv`):
+
+```tsv
+label	path	source	highlight
+zeroshot_NT2_seq12k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq12k.tsv	zeroshot	no
+zeroshot_NT2_seq6k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq6k.tsv	zeroshot	no
+zeroshot_NT1_seq6k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT1_seq6k.tsv	zeroshot	no
+zeroshot_CaduceusPS_seq30k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPS_seq30k.tsv	zeroshot	no
+zeroshot_CaduceusPh_seq30k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPh_seq30k.tsv	zeroshot	no
+dbnsfp	results/predictions/ClinVar.251103.BLBvsPLP/dbnsfp.tsv	dbnsfp	no
+```
+
+`source` must be `finetune`, `zeroshot`, or `dbnsfp`. Set `highlight=yes` for
+any model you want highlighted in plots. Lines starting with `#` are comments.
+To add a new model, add one line.
+
+```bash
+python evaluation/merge.py \
+    --config results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --output results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv
+# Outputs: merged.tsv, dbnsfp_column_coverage.tsv
+```
+
+---
+
+### Step 4 — Evaluate
+
+`evaluate.py` handles full, filtered, and stratified evaluation. Pass `--config`
+pointing to `merge_config.tsv` so the script knows which models to highlight.
+
+#### Full dataset evaluation
+
+```bash
+python evaluation/evaluate.py \
+    --merged  results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
+    --config  results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --outdir  results/predictions/ClinVar.251103.BLBvsPLP/eval_all
+```
+
+Outputs: `all_metrics.tsv`, `summary_comparison.tsv`, `shared_subset_summary.tsv`, `plots/`
+
+#### Filter: keep rare variants only (AF < threshold)
+
+```bash
+python evaluation/evaluate.py \
+    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
+    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-3 \
+    --mode      filter \
+    --col       gnomAD4.1_joint_AF \
+    --threshold 1e-3
+
+python evaluation/evaluate.py \
+    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
+    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-6 \
+    --mode      filter \
+    --col       gnomAD4.1_joint_AF \
+    --threshold 1e-6
+```
+
+#### Filter: highly conserved sites
+
+```bash
+python evaluation/evaluate.py \
+    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
+    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_conserved_phylop \
+    --mode      filter \
+    --col       phyloP100way_vertebrate \
+    --threshold 3.0 \
+    --direction above
+
+python evaluation/evaluate.py \
+    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
+    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_conserved_gerp \
+    --mode      filter \
+    --col       "GERP++_RS" \
+    --threshold 4.0 \
+    --direction above
+```
+
+#### Stratify: evaluate each bin separately
+
+```bash
+python evaluation/evaluate.py \
+    --merged  results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
+    --config  results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --outdir  results/predictions/ClinVar.251103.BLBvsPLP/eval_strat_af \
+    --mode    stratify \
+    --col     gnomAD4.1_joint_AF \
+    --strata  builtin_af
+
+python evaluation/evaluate.py \
+    --merged  results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
+    --config  results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+    --outdir  results/predictions/ClinVar.251103.BLBvsPLP/eval_strat_gerp \
+    --mode    stratify \
+    --col     "GERP++_RS" \
+    --strata  builtin_gerp
+```
+
+---
+
+### Step 5 — Compare across strategies
+
+```bash
+python evaluation/compare_strategies.py \
+    --dirs \
+        "all=results/predictions/ClinVar.251103.BLBvsPLP/eval_all" \
+        "rare_1e-3=results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-3" \
+        "rare_1e-6=results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-6" \
+        "conserved_gerp=results/predictions/ClinVar.251103.BLBvsPLP/eval_conserved_gerp" \
+    --outdir results/predictions/ClinVar.251103.BLBvsPLP/comparison
+
+python evaluation/compare_strategies.py \
+    --strat_dir results/predictions/ClinVar.251103.BLBvsPLP/eval_strat_af \
+    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/comparison_strat_af
+```
+
+Outputs:
+- `comparison_all_methods.tsv` — full long-format table
+- `pivot_auroc.tsv`, `pivot_prauc.tsv` — method × stratum pivots
+- `plots/grouped_bar_auroc.png`, `plots/heatmap_auroc.png`, `plots/rank_chart_auroc.png`
+
+---
+
+## Dataset 2: ClinVar.251103.BvsP (P vs B, val split only)
+
+> **Note — scores reused from Dataset 1**: `ClinVar.251103.BvsP` is a strict
+> subset of `ClinVar.251103.BLBvsPLP`. There is no need to re-run dbNSFP
+> annotation or zero-shot scoring — the prediction TSVs are shared. The
+> `merge_config.tsv` for this dataset points directly at the same files.
+> Only subset ID generation, merging, and evaluation are needed.
+
+### Step 1 — Generate subset IDs file
+
+```bash
+python evaluation/extract_subset_ids.py \
+    --dataset ClinVar.251103.BvsP \
+    --datadir data/splits \
+    --outfile data/splits/ClinVar.251103.missense.hg38.bvsp_ids.tsv
+```
+
+### Step 2 — Merge
+
+**`merge_config.tsv`** (already committed at
+`results/predictions/ClinVar.251103.BvsP/merge_config.tsv`):
+
+```tsv
+label	path	source	highlight
+zeroshot_NT2_seq12k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq12k.tsv	zeroshot	no
+zeroshot_NT2_seq6k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq6k.tsv	zeroshot	no
+zeroshot_NT1_seq6k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT1_seq6k.tsv	zeroshot	no
+zeroshot_CaduceusPS_seq30k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPS_seq30k.tsv	zeroshot	no
+zeroshot_CaduceusPh_seq30k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPh_seq30k.tsv	zeroshot	no
+dbnsfp	results/predictions/ClinVar.251103.BLBvsPLP/dbnsfp.tsv	dbnsfp	no
+```
+
+```bash
+python evaluation/merge.py \
+    --config results/predictions/ClinVar.251103.BvsP/merge_config.tsv \
+    --output results/predictions/ClinVar.251103.BvsP/merged.tsv
+```
+
+### Step 3 — Evaluate
+
+```bash
+python evaluation/evaluate.py \
+    --merged  results/predictions/ClinVar.251103.BvsP/merged.tsv \
+    --config  results/predictions/ClinVar.251103.BvsP/merge_config.tsv \
+    --outdir  results/predictions/ClinVar.251103.BvsP/eval_all \
+    --subset  data/splits/ClinVar.251103.missense.hg38.bvsp_ids.tsv
+```
+
+Filtered and stratified evaluation follow the same flags as shown for
+`ClinVar.251103.BLBvsPLP` above — just substitute the dataset paths and always
+pass `--subset data/splits/ClinVar.251103.missense.hg38.bvsp_ids.tsv`.
+
+---
+
+## Dataset 3: ClinVar.260309only (PLP vs BLB, all chroms)
+
+This dataset uses sequences from `data/sequences/` covering all chromosomes,
+and includes fine-tuned model scores alongside zero-shot baselines.
+
+> **Note — concatenated sequence files**: `generate_datasets.sh` has already
+> produced `ClinVar.260309only.missense.hg38.seq{size}.tsv` by concatenating
+> the per-class `.bed.seq{size}.tsv` files. Use these concatenated files as
+> input to all scoring scripts below.
+
+### Step 1 — Generate subset IDs file
+
+Needed now so that Dataset 4 (P+B subset) can reuse it without re-running scoring.
+
+```bash
+python evaluation/extract_subset_ids.py \
+    --dataset ClinVar.260309only \
+    --datadir data/sequences \
+    --outfile data/sequences/ClinVar.260309only.missense.hg38.pb_ids.tsv
+```
+
+### Step 2a — Score variants with our fine-tuned model
+
+```bash
+python scoring/score_variants.py \
+    --input  data/sequences/ClinVar.260309only.missense.hg38.seq12k.tsv \
+    --model  scoring/model/best_model.pt \
+    --output results/predictions/ClinVar.260309only/finetune_NT2_seq12k.tsv
+```
+
+### Step 2b — Annotate variants with dbNSFP
+
+```bash
+python evaluation/annotate_dbnsfp.py \
+    --variants data/sequences/ClinVar.260309only.missense.hg38.seq12k.tsv \
+    --dbnsfp   data/dbnsfp/dbNSFP5.3.1a_grch38.gz \
+    --outdir   results/predictions/ClinVar.260309only
+```
+
+### Step 2c — Zero-shot scoring
 
 #### NT-1 and NT-2
 
@@ -159,27 +440,10 @@ python evaluation/zeroshot_caduceus.py \
     --gpu 2
 ```
 
-**Output columns** (identical for both scripts):
+### Step 3 — Merge
 
-| Column | Description |
-|--------|-------------|
-| `variant_id`, `chromosome`, `position`, `ref_allele`, `alt_allele` | Variant identifiers |
-| `pathogenicity_score` | `sigmoid(-(log P(alt\|ctx) - log P(ref\|ctx)))`, 0–1, higher = more pathogenic |
-| `predicted_label` | Binary call at `--threshold` (default 0.5) |
-| `true_label` | From input `label` column if present |
-| `log_p_alt`, `log_p_ref`, `log_likelihood_ratio` | Intermediate values, ignored by eval scripts |
-
----
-
-### Step 3 — Merge all predictions into one wide TSV
-
-A config file lists every model and the dbNSFP file to merge. Each model
-contributes one `{label}_score` column; dbNSFP adds all its score columns as-is.
-The first non-dbnsfp entry is the primary model — its key columns form the
-base of the output.
-
-**Create the config** (save as `results/predictions/ClinVar.260309only/merge_config.tsv`,
-track in git):
+**`merge_config.tsv`** (already committed at
+`results/predictions/ClinVar.260309only/merge_config.tsv`):
 
 ```tsv
 label	path	source	highlight
@@ -192,13 +456,6 @@ zeroshot_CaduceusPh_seq30k	results/predictions/ClinVar.260309only/zeroshot_Caduc
 dbnsfp	results/predictions/ClinVar.260309only/dbnsfp.tsv	dbnsfp	no
 ```
 
-`source` must be `finetune`, `zeroshot`, or `dbnsfp`. Set `highlight=yes` for
-any model you want highlighted in plots — typically your fine-tuned models. If
-the `highlight` column is omitted, all `finetune` rows are highlighted by default.
-Lines starting with `#` are comments. To add a new model, add one line.
-
-**Run the merge**:
-
 ```bash
 python evaluation/merge.py \
     --config results/predictions/ClinVar.260309only/merge_config.tsv \
@@ -206,100 +463,19 @@ python evaluation/merge.py \
 # Outputs: merged.tsv, dbnsfp_column_coverage.tsv
 ```
 
-Downstream eval scripts read `merge_config.tsv` directly via `--config` to
-know which columns to highlight.
-
----
-
 ### Step 4 — Evaluate
 
-`evaluate.py` script handles full evaluation, filtered evaluation, and stratified
-evaluation. Pass `--config` pointing to `merge_config.tsv` so the script knows
-which models to highlight. Models with `highlight=yes` always appear in plots
-in bold, regardless of whether they rank in the top N.
-
-#### Full dataset evaluation
+#### Full dataset evaluation (all four classes)
 
 ```bash
-# All four classes
 python evaluation/evaluate.py \
     --merged  results/predictions/ClinVar.260309only/merged.tsv \
     --config  results/predictions/ClinVar.260309only/merge_config.tsv \
     --outdir  results/predictions/ClinVar.260309only/eval_all
-
-# Pathogenic + benign only (P+B subset)
-python evaluation/evaluate.py \
-    --merged  results/predictions/ClinVar.260309only/merged.tsv \
-    --config  results/predictions/ClinVar.260309only/merge_config.tsv \
-    --outdir  results/predictions/ClinVar.260309only/eval_pb \
-    --subset  data/sequences/ClinVar.260309only.missense.hg38.pb_ids.tsv
 ```
 
-Outputs: `all_metrics.tsv`, `summary_comparison.tsv`, `shared_subset_summary.tsv`, `plots/`
-
-#### Filter: keep rare variants only (AF < threshold)
-
-```bash
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.260309only/merged.tsv \
-    --config    results/predictions/ClinVar.260309only/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.260309only/eval_rare_1e-3 \
-    --mode      filter \
-    --col       gnomAD4.1_joint_AF \
-    --threshold 1e-3
-
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.260309only/merged.tsv \
-    --config    results/predictions/ClinVar.260309only/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.260309only/eval_rare_1e-6 \
-    --mode      filter \
-    --col       gnomAD4.1_joint_AF \
-    --threshold 1e-6
-```
-
-#### Filter: highly conserved sites
-
-```bash
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.260309only/merged.tsv \
-    --config    results/predictions/ClinVar.260309only/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.260309only/eval_conserved_phylop \
-    --mode      filter \
-    --col       phyloP100way_vertebrate \
-    --threshold 3.0 \
-    --direction above
-
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.260309only/merged.tsv \
-    --config    results/predictions/ClinVar.260309only/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.260309only/eval_conserved_gerp \
-    --mode      filter \
-    --col       "GERP++_RS" \
-    --threshold 4.0 \
-    --direction above
-```
-
-#### Stratify: evaluate each bin separately
-
-```bash
-python evaluation/evaluate.py \
-    --merged  results/predictions/ClinVar.260309only/merged.tsv \
-    --config  results/predictions/ClinVar.260309only/merge_config.tsv \
-    --outdir  results/predictions/ClinVar.260309only/eval_strat_af \
-    --mode    stratify \
-    --col     gnomAD4.1_joint_AF \
-    --strata  builtin_af
-
-python evaluation/evaluate.py \
-    --merged  results/predictions/ClinVar.260309only/merged.tsv \
-    --config  results/predictions/ClinVar.260309only/merge_config.tsv \
-    --outdir  results/predictions/ClinVar.260309only/eval_strat_gerp \
-    --mode    stratify \
-    --col     "GERP++_RS" \
-    --strata  builtin_gerp
-```
-
----
+Filtered and stratified evaluation follow the same flags as shown for
+`ClinVar.251103.BLBvsPLP` above — just substitute the dataset paths.
 
 ### Step 5 — Compare across strategies
 
@@ -317,10 +493,50 @@ python evaluation/compare_strategies.py \
     --outdir    results/predictions/ClinVar.260309only/comparison_strat_af
 ```
 
-Outputs:
-- `comparison_all_methods.tsv` — full long-format table
-- `pivot_auroc.tsv`, `pivot_prauc.tsv` — method × stratum pivots
-- `plots/grouped_bar_auroc.png`, `plots/heatmap_auroc.png`, `plots/rank_chart_auroc.png`
+---
+
+## Dataset 4: ClinVar.260309only.BvsP (P vs B, all chroms)
+
+> **Note — scores reused from Dataset 3**: `ClinVar.260309only.BvsP` is a strict
+> subset of the full `ClinVar.260309only` run. The subset IDs file was already
+> generated in Dataset 3 Step 1. The `merge_config.tsv` for this dataset points
+> directly at the same prediction TSVs. Only merging and evaluation are needed.
+
+### Step 1 — Merge
+
+**`merge_config.tsv`** (already committed at
+`results/predictions/ClinVar.260309only.BvsP/merge_config.tsv`):
+
+```tsv
+label	path	source	highlight
+finetune_NT2_seq12k	results/predictions/ClinVar.260309only/finetune_NT2_seq12k.tsv	finetune	yes
+zeroshot_NT2_seq12k	results/predictions/ClinVar.260309only/zeroshot_NT2_seq12k.tsv	zeroshot	no
+zeroshot_NT2_seq6k	results/predictions/ClinVar.260309only/zeroshot_NT2_seq6k.tsv	zeroshot	no
+zeroshot_NT1_seq6k	results/predictions/ClinVar.260309only/zeroshot_NT1_seq6k.tsv	zeroshot	no
+zeroshot_CaduceusPS_seq30k	results/predictions/ClinVar.260309only/zeroshot_CaduceusPS_seq30k.tsv	zeroshot	no
+zeroshot_CaduceusPh_seq30k	results/predictions/ClinVar.260309only/zeroshot_CaduceusPh_seq30k.tsv	zeroshot	no
+dbnsfp	results/predictions/ClinVar.260309only/dbnsfp.tsv	dbnsfp	no
+```
+
+```bash
+python evaluation/merge.py \
+    --config results/predictions/ClinVar.260309only.BvsP/merge_config.tsv \
+    --output results/predictions/ClinVar.260309only.BvsP/merged.tsv
+```
+
+### Step 2 — Evaluate
+
+```bash
+python evaluation/evaluate.py \
+    --merged  results/predictions/ClinVar.260309only.BvsP/merged.tsv \
+    --config  results/predictions/ClinVar.260309only.BvsP/merge_config.tsv \
+    --outdir  results/predictions/ClinVar.260309only.BvsP/eval_all \
+    --subset  data/sequences/ClinVar.260309only.missense.hg38.pb_ids.tsv
+```
+
+Filtered and stratified evaluation follow the same flags as shown for
+`ClinVar.251103.BLBvsPLP` above — just substitute the dataset paths and always
+pass `--subset data/sequences/ClinVar.260309only.missense.hg38.pb_ids.tsv`.
 
 ---
 
@@ -352,8 +568,15 @@ Defined in `core/filters.py` → `CONSERVATION_COLS`:
   `ClinVar.260309only.missense.hg38.seq{size}.tsv` consistently. Subset IDs
   follow the same prefix: `ClinVar.260309only.missense.hg38.pb_ids.tsv`.
 - **Flat predictions directory**: all scoring outputs for a dataset live under
-  one directory (e.g. `results/predictions/ClinVar.260309only/`) regardless of
-  sequence length. dbNSFP annotations are seq-length agnostic and live here too.
+  one directory regardless of sequence length. dbNSFP annotations are
+  seq-length agnostic and live here too.
+- **Score reuse across subset datasets**: datasets 2 and 4 point their
+  `merge_config.tsv` directly at the prediction TSVs of their parent dataset
+  (1 and 3 respectively). Subset filtering happens at evaluation time via
+  `--subset`, not at scoring time.
+- **dbNSFP is seq-length agnostic**: `annotate_dbnsfp.py` only uses
+  chromosome/position/ref/alt. Any seq-size input file works; seq12k is used
+  by convention. Run once per source dataset.
 - **Single evaluation script**: `evaluate.py` replaces `evaluate_all.py` and
   `evaluate_filtered.py`. Omit `--mode` for full evaluation; pass `--mode filter`
   or `--mode stratify` for filtered/stratified evaluation. `--config` is always
