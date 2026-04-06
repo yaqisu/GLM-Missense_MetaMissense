@@ -1,0 +1,25 @@
+# merge_config.tsv
+# Config for merge_all.py — lists all models and dbNSFP to merge.
+#
+# Columns (tab-separated):
+#   label      score column prefix in merged.tsv ({label}_score)
+#   path       path to the prediction TSV
+#   source     finetune | zeroshot | dbnsfp
+#   highlight  yes | no  — whether to highlight in plots (e.g. our fine-tuned models)
+#              if this column is omitted, all finetune rows are highlighted by default
+#
+# The FIRST non-dbnsfp row is the primary model (provides key columns for the merge base).
+# dbnsfp rows are joined on all key columns and add all their score columns as-is.
+#
+# Run:
+#   python evaluation/merge.py \
+#       --config results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
+#       --output results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv
+# Outputs: merged.tsv, dbnsfp_column_coverage.tsv
+label	path	source	highlight
+zeroshot_NT2_seq12k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq12k.tsv	zeroshot	no
+zeroshot_NT2_seq6k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT2_seq6k.tsv	zeroshot	no
+zeroshot_NT1_seq6k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_NT1_seq6k.tsv	zeroshot	no
+zeroshot_CaduceusPS_seq30k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPS_seq30k.tsv	zeroshot	no
+zeroshot_CaduceusPh_seq30k	results/predictions/ClinVar.251103.BLBvsPLP/zeroshot_CaduceusPh_seq30k.tsv	zeroshot	no
+dbnsfp	results/predictions/ClinVar.251103.BLBvsPLP/dbnsfp.tsv	dbnsfp	no

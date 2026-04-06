@@ -59,11 +59,14 @@ Fine-tuning-gLM-variant-pathogenicity/
 │   └── README.md
 │
 ├── training/                           # Model training scripts
-│   ├── NT2_BLBvsPLP.py
-│   ├── NT2_phase1_and_unfreezeAll.py
-│   ├── NT2_phase2_and_phase3.py
-│   ├── NT1_phase1.py
-│   ├── caduceus_phase1.py
+│   ├── NT2_phase1_and_unfreezeAll.py   # NT2 frozen backbone + full fine-tuning
+│   ├── NT2_lora_sweep.py               # NT2 LoRA rank/LR/classifier/embedding sweep
+│   ├── NT2_fullFT_sweepLR.py           # NT2 full fine-tuning LR sweep
+│   ├── NT2_window_pooling_sweep.py     # NT2 frozen backbone window pooling sweep
+│   ├── NT2_ranked_cv.py                # 5-fold CV on top-ranked LoRA configs
+│   ├── NT2_ref_alt_contrast.py         # Final model: Siamese LoRA + MLP head
+│   ├── NT1_phase1.py                   # NT1 frozen backbone experiments
+│   ├── caduceus_phase1.py              # Caduceus frozen backbone experiments
 │   └── runs.sh                         # Exact commands used in the paper
 │
 ├── scoring/                            # Score new variants using trained model
@@ -137,20 +140,57 @@ bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 6k,12k,30
 
 ### 3. Training
 
-Training scripts are organized by model and experimental phase. All scripts are run from the repo root and read data from `data/splits/`.
+All training scripts are run from the repo root and read data from `data/splits/`. To reproduce the exact final model from the paper:
 
-| Script | Model | Description |
-|--------|-------|-------------|
-| `training/NT2_BLBvsPLP.py` | NT2 | LoRA (rank=32) + CNN on BLBvsPLP data |
-| `training/NT2_phase1_and_unfreezeAll.py` | NT2 | Phase 1: frozen backbone; full fine-tuning (unfreeze all) |
-| `training/NT2_phase2_and_phase3.py` | NT2 | Phase 2: LoRA fine-tuning; Phase 3: learning rate |
-| `training/NT1_phase1.py` | NT1 | Phase 1: frozen backbone experiments |
-| `training/caduceus_phase1.py` | Caduceus | Phase 1: frozen backbone experiments |
-
-To reproduce the exact experiments from the paper:
 ```bash
 bash training/runs.sh
 ```
+
+The full experimental pipeline proceeds in four stages:
+
+**Stage 1 — Frozen backbone (classifier and embedding ablation)**
+
+Freeze the backbone and sweep over classifier architectures and embedding strategies to identify the best combination:
+
+| Script | Model | Description |
+|--------|-------|-------------|
+| `training/NT2_phase1_and_unfreezeAll.py` | NT2 | Frozen backbone experiments; also includes full fine-tuning (unfreeze all) |
+| `training/NT1_phase1.py` | NT1 | Frozen backbone experiments |
+| `training/caduceus_phase1.py` | Caduceus | Frozen backbone experiments |
+
+**Stage 2 — LoRA and full fine-tuning sweep**
+
+Using the best classifier/embedding combination from Stage 1, sweep over LoRA rank, learning rate, and fine-tuning strategy:
+
+| Script | Description |
+|--------|-------------|
+| `training/NT2_lora_sweep.py` | 54 LoRA experiments: 2 embedding strategies × 3 classifiers × 3 LoRA ranks (8/16/32) × 3 LRs (1e-5/3e-5/5e-5). Distributed across 4 GPUs (LoRA: 1 GPU each; full FT: 2 GPUs each). |
+| `training/NT2_fullFT_sweepLR.py` | Full fine-tuning LR sweep (1e-4, 5e-4) for MLP and CNN classifiers. |
+| `training/NT2_window_pooling_sweep.py` | Frozen-backbone CNN experiments varying local mean-pooling window size around the variant position (±8/±16/±32 tokens). |
+
+**Stage 3 — Cross-validation on top configurations**
+
+| Script | Description |
+|--------|-------------|
+| `training/NT2_ranked_cv.py` | 5-fold chromosome-split cross-validation on top-ranked LoRA configurations from Stage 2, evaluated in rank order. Requires `experiment_ranking.json` produced by `summarize_sweep.py`. |
+
+```bash
+# First generate the ranking from sweep results:
+python summarize_sweep.py /path/to/sweep_output --csv
+
+# Then run CV in rank order:
+python training/NT2_ranked_cv.py \
+    --ranking_json /path/to/sweep_output/experiment_ranking.json \
+    --data_path data/splits/combined_train_val.tsv \
+    --output_dir results/nt2_ranked_cv \
+    --gpus 0 1 2 3
+```
+
+**Stage 4 — Final model**
+
+| Script | Description |
+|--------|-------------|
+| `training/NT2_ref_alt_contrast.py` | Siamese LoRA (rank=32) fine-tuning: ref and alt sequences are independently encoded through the shared NT2 backbone; embeddings at the variant position are combined as `[ref, alt, ref − alt]` and passed to a 2-layer MLP classifier. |
 
 ### 4. Results
 
@@ -190,7 +230,7 @@ Evaluate predictions against ground truth labels — see [evaluation](evaluation
 
 | Model | Dataset | Seq length | AUC |
 |-------|---------|------------|-----|
-| NT2 + LoRA (rank=32) + CNN | BvsP | 12k | **0.886** |
+| NT2 + LoRA (rank=32) + MLP | BvsP | 12k | **0.886** |
 
 ---
 
