@@ -31,6 +31,18 @@ Logging behaviour (controlled by --eval_interval, default 1000):
                          + best_model.pt checkpoint (if val AUROC improved)
     Post-training      : training_metrics_final.csv, training_curves.pdf,
                          summary.json
+
+Training & Evaluation Notes:
+    Training and evaluation run in a single script. Eval is triggered every
+    --eval_interval steps and runs sequentially after the training step
+    completes. Because eval runs under torch.no_grad(), training's activation
+    graphs, gradients, and optimizer states are not in memory during eval —
+    so --eval_batch_size can be set much larger than --batch_size without
+    risk of OOM. Default eval_batch_size=256 vs training batch_size=8.
+
+    To skip inline eval entirely and run evaluation offline via
+    evaluate_checkpoints.py, pass --no_eval. Checkpoints are always saved
+    regardless of this flag.
 """
 
 import os
@@ -64,7 +76,7 @@ EXPERIMENT_CONFIGS = [
     {
         "exp_id": 1,
         "description": "Ref-alt contrast Siamese MLP, combine=concat_diff",
-        "combine_mode": "concat_diff",      # [ref, alt, ref - alt]
+        "combine_mode": "concat_diff",
         "lora_rank": 32,
         "batch_size": 8,                    # 8 total / 4 GPUs = 2 per GPU
         "num_steps": 17000,                 # steps = (epochs × samples) / effective_batch_size = (3.6 × 151,015) / 32 = ~17,000 steps
@@ -411,10 +423,8 @@ class EarlyStopping:
 def evaluate_model(model, dataloader, criterion, device):
     """
     Full eval pass over an entire dataloader. Returns (avg_loss, auroc, auprc).
-
-    This is EXPENSIVE — it runs the full NT2 backbone over every sample in
-    the dataset. Do not call at every step. Use eval_interval to control
-    how often this is triggered (default 1000 steps).
+    Use this for val set evaluation (val set is small so this is fine).
+    For the train set, use evaluate_model_subset instead.
     """
     model.eval()
     total_loss = 0
@@ -440,6 +450,26 @@ def evaluate_model(model, dataloader, criterion, device):
     return avg_loss, auroc, auprc
 
 
+def evaluate_model_subset(model, dataset, criterion, device,
+                          n_samples=5000, batch_size=8):
+    """
+    Evaluate on a random subset of a dataset. Returns (avg_loss, auroc, auprc).
+
+    Used for train set monitoring during training — gives a representative
+    AUROC/AUPRC estimate without paying the cost of a full pass over 151k samples.
+    The full train AUROC can always be computed offline by reloading a saved
+    checkpoint and running evaluate_model over the full train_loader.
+
+    n_samples : number of training samples to randomly draw each time.
+                5000 is enough to get a stable AUROC estimate and runs fast.
+    """
+    n_samples = min(n_samples, len(dataset))
+    indices = torch.randperm(len(dataset))[:n_samples].tolist()
+    subset = torch.utils.data.Subset(dataset, indices)
+    loader = DataLoader(subset, batch_size=batch_size, shuffle=False)
+    return evaluate_model(model, loader, criterion, device)
+
+
 # ============================================================================
 # Training Loop
 # ============================================================================
@@ -447,34 +477,43 @@ def evaluate_model(model, dataloader, criterion, device):
 def train_experiment(exp_config, train_path, val_path, output_dir,
                      gpu_list, batch_size=8, num_steps=8000,
                      learning_rate=3e-5, k=6, gradient_accumulation_steps=4,
-                     eval_interval=1000):
+                     eval_interval=1000, train_eval_samples=10000,
+                     eval_batch_size=256, do_eval=True):
     """
     Train one ref-alt contrast experiment across all GPUs in gpu_list
     using nn.DataParallel.
 
     Output files written per experiment (inside exp_dir):
-        training_loss.csv        — one row per optimizer step: step, batch loss, lr
-                                   (cheap: reuses loss already computed during training,
-                                    no extra forward passes)
-        training_metrics.csv     — one row per eval_interval: step, train/val
-                                   loss/AUROC/AUPRC, lr, gpu_memory
-                                   (expensive: two full forward passes over both datasets)
-        best_model.pt            — saved whenever val AUROC improves (at eval points)
-        training_metrics_final.csv — same as training_metrics.csv, written at end
-        training_curves.pdf      — train vs val loss/AUROC/AUPRC plots
-        summary.json             — final best metrics + config
-        training.log             — full console log
+        training_loss.csv        — one row per optimizer step: step, batch loss,
+                                   running avg loss, lr. Always written.
+        checkpoints/step_N.pt    — model saved every eval_interval steps.
+                                   Always written regardless of do_eval.
+        training_metrics.csv     — only written if do_eval=True. One row per
+                                   eval_interval: train subset AUROC/AUPRC
+                                   (train_eval_samples random samples) +
+                                   full val AUROC/AUPRC.
+        best_model.pt            — only written if do_eval=True. Saved when
+                                   val AUROC improves.
+        training_metrics_final.csv — only written if do_eval=True.
+        training_curves.pdf      — only written if do_eval=True.
+        summary.json             — always written.
+        training.log             — always written.
 
-    gpu_list    : list of GPU IDs, e.g. [0, 1, 2, 3].
-                  First GPU is primary; DataParallel splits each batch across all.
-    batch_size  : total batch size across all GPUs.
-                  Each GPU receives batch_size // len(gpu_list) samples.
-    eval_interval : how often (optimizer steps) to run full train+val evaluation.
-                  Recommended values:
-                    1000 — production runs (default)
-                     100 — closer monitoring without too much overhead
-                      10 — only for very short debug runs; will slow training
-                           significantly on large datasets
+    do_eval          : if False, skip all evaluation. Checkpoints still saved.
+    eval_batch_size  : batch size used ONLY during eval passes. Can be much
+                       larger than training batch_size because eval runs under
+                       torch.no_grad() — no activation graphs, no gradients,
+                       no optimizer states in memory. When eval runs sequentially
+                       inside the training loop (not a separate process), training
+                       memory is freed before eval starts so this is safe.
+                       Default: 256. Reduce only if you run eval simultaneously
+                       with another training process on the same GPUs.
+    train_eval_samples : number of random training samples for train AUROC/AUPRC
+                       estimation at each eval checkpoint. Full train eval can
+                       always be done offline via saved checkpoints.
+    gpu_list         : list of GPU IDs, e.g. [0, 1, 2, 3].
+    batch_size       : total training batch size across all GPUs.
+    eval_interval    : how often (steps) to save checkpoint and optionally eval.
     """
 
     exp_id = exp_config['exp_id']
@@ -504,7 +543,11 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
     logger.info(f"Grad accum     : {gradient_accumulation_steps}")
     logger.info(f"Effective batch: {batch_size * gradient_accumulation_steps}")
     logger.info(f"Eval interval  : every {eval_interval} steps "
-                f"(training loss logged every step)")
+                f"(checkpoints always saved; eval {'enabled' if do_eval else 'DISABLED — use evaluate_checkpoints.py'})")
+    if do_eval:
+        logger.info(f"Eval batch size: {eval_batch_size} "
+                    f"(larger than train batch is safe — sequential, no_grad)")
+        logger.info(f"Train eval     : {train_eval_samples} random samples per checkpoint")
 
     # ---- Device setup ----
     device = torch.device(f'cuda:{primary_gpu}')
@@ -559,6 +602,24 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
             shuffle=False, k=k
         )
 
+        # Separate eval dataloaders with larger batch size.
+        # eval_batch_size can be much larger than batch_size because eval
+        # runs sequentially after training steps under torch.no_grad() —
+        # no activation graphs, gradients, or optimizer states in memory.
+        if do_eval:
+            val_eval_loader = create_dual_data_loader(
+                val_path, tokenizer, eval_batch_size, max_length=2048,
+                shuffle=False, k=k
+            )
+            logger.info(
+                f"  Train loader : batch={batch_size} (training)"
+            )
+            logger.info(
+                f"  Val loader   : batch={eval_batch_size} (eval, "
+                f"{len(val_eval_loader.dataset):,} samples, "
+                f"~{len(val_eval_loader)} batches)"
+            )
+
         # ---- Optimizer / scheduler ----
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
@@ -579,45 +640,117 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
         warmup_steps = int(0.06 * num_steps)
         scheduler = LRSchedulerWithWarmup(optimizer, warmup_steps, num_steps)
         criterion = nn.BCEWithLogitsLoss()
-        early_stopping = EarlyStopping(patience=2, mode='max')
+
+        # ---- Resume from checkpoint if one exists ----
+        # Scans checkpoints/ for existing step_N.pt files and resumes
+        # from the latest one, restoring model weights, optimizer state,
+        # scheduler state, and global_step so training continues seamlessly.
+        checkpoints_dir = exp_dir / 'checkpoints'
+        checkpoints_dir.mkdir(exist_ok=True)
+
+        resume_step = 0
+        resume_running_loss_sum = 0.0
+        existing_ckpts = sorted(
+            checkpoints_dir.glob('step_*.pt'),
+            key=lambda p: int(p.stem.split('_')[1])
+        )
+        if existing_ckpts:
+            latest_ckpt = existing_ckpts[-1]
+            resume_step = int(latest_ckpt.stem.split('_')[1])
+            logger.info(f"Resuming from checkpoint: {latest_ckpt.name} (step {resume_step})")
+
+            ckpt = torch.load(latest_ckpt, map_location=device)
+
+            # Restore model weights (unwrap DataParallel if needed)
+            model_to_load = model.module if use_multi_gpu else model
+            model_to_load.load_state_dict(ckpt['model_state_dict'])
+            logger.info(f"  Model weights restored from step {resume_step}")
+
+            # Restore optimizer state (momentum/variance buffers)
+            if 'optimizer_state_dict' in ckpt:
+                optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+                logger.info(f"  Optimizer state restored")
+            else:
+                logger.warning(
+                    "  No optimizer state found in checkpoint — "
+                    "optimizer starts fresh (LR and momentum will be wrong for a few steps)"
+                )
+
+            # Restore scheduler state
+            if 'scheduler_state_dict' in ckpt:
+                sd = ckpt['scheduler_state_dict']
+                scheduler.current_step = sd['current_step']
+                scheduler.warmup_steps = sd['warmup_steps']
+                scheduler.total_steps = sd['total_steps']
+                scheduler.base_lrs = sd['base_lrs']
+                logger.info(
+                    f"  Scheduler restored: current_step={scheduler.current_step}, "
+                    f"lr={scheduler.get_last_lr()[0]:.2e}"
+                )
+            else:
+                logger.warning(
+                    "  No scheduler state found in checkpoint — "
+                    "scheduler restarts from step 0"
+                )
+
+            # Restore running loss sum for accurate running average
+            if 'running_loss_sum' in ckpt:
+                resume_running_loss_sum = ckpt['running_loss_sum']
+                logger.info(f"  Running loss sum restored: {resume_running_loss_sum:.4f}")
+
+            logger.info(f"Resuming training from step {resume_step}/{num_steps}")
+        else:
+            logger.info("No existing checkpoints found — starting training from scratch")
 
         # ---- Output files ----
         #
-        # training_loss.csv : written every optimizer step (cheap)
-        #   columns: step, train_loss_batch, learning_rate
-        #   "train_loss_batch" is the loss on the current mini-batch only,
-        #   not the full dataset. Use this to track training progress between
-        #   eval checkpoints without paying the cost of a full eval pass.
+        # training_loss.csv : always written every optimizer step
+        #   columns: step, train_loss_batch, train_loss_running_avg, learning_rate
+        #   On resume: append to existing file (do not overwrite)
         #
-        # training_metrics.csv : written every eval_interval steps (expensive)
-        #   columns: steps, train_loss, train_auroc, train_auprc,
-        #            val_loss, val_auroc, val_auprc, learning_rate, gpu_memory_gb
-        #   train_loss here is the average over the full training set (not batch).
+        # checkpoints/ : model saved every eval_interval steps, always
+        #
+        # training_metrics.csv : only written if do_eval=True
+        #   On resume: append to existing file (do not overwrite)
         #
         train_loss_csv = exp_dir / 'training_loss.csv'
-        metrics_csv = exp_dir / 'training_metrics.csv'
 
-        pd.DataFrame(columns=['step', 'train_loss_batch', 'learning_rate']
-                     ).to_csv(train_loss_csv, index=False)
-        pd.DataFrame(columns=[
-            'steps', 'train_loss', 'train_auroc', 'train_auprc',
-            'val_loss', 'val_auroc', 'val_auprc',
-            'learning_rate', 'gpu_memory_gb',
-        ]).to_csv(metrics_csv, index=False)
+        # Only create CSV headers if starting fresh (not resuming)
+        if resume_step == 0:
+            pd.DataFrame(columns=[
+                'step', 'train_loss_batch', 'train_loss_running_avg', 'learning_rate'
+            ]).to_csv(train_loss_csv, index=False)
+        else:
+            logger.info(f"Appending to existing training_loss.csv from step {resume_step}")
 
-        # In-memory accumulator for final metrics_final.csv and plots
-        eval_metrics = {k_: [] for k_ in [
-            'steps', 'train_loss', 'train_auroc', 'train_auprc',
-            'val_loss', 'val_auroc', 'val_auprc',
-            'learning_rate', 'gpu_memory_gb',
-        ]}
+        if do_eval:
+            metrics_csv = exp_dir / 'training_metrics.csv'
+            if resume_step == 0:
+                pd.DataFrame(columns=[
+                    'steps',
+                    'train_loss_subset', 'train_auroc_subset', 'train_auprc_subset',
+                    'val_loss', 'val_auroc', 'val_auprc',
+                    'learning_rate', 'gpu_memory_gb',
+                ]).to_csv(metrics_csv, index=False)
+            else:
+                logger.info(f"Appending to existing training_metrics.csv from step {resume_step}")
+            eval_metrics = {k_: [] for k_ in [
+                'steps',
+                'train_loss_subset', 'train_auroc_subset', 'train_auprc_subset',
+                'val_loss', 'val_auroc', 'val_auprc',
+                'learning_rate', 'gpu_memory_gb',
+            ]}
+            best_val_auroc = 0.0
+            best_val_auprc = 0.0
 
         # ---- Training ----
-        logger.info(f"Training for {num_steps} steps ({warmup_steps} warmup steps)")
-        global_step = 0
-        best_val_auroc = 0.0
-        best_val_auprc = 0.0
+        logger.info(
+            f"Training for {num_steps} steps ({warmup_steps} warmup steps)"
+            + (f" — resuming from step {resume_step}" if resume_step > 0 else "")
+        )
+        global_step = resume_step
         accum_counter = 0
+        running_loss_sum = resume_running_loss_sum
         train_iter = iter(train_loader)
 
         while global_step < num_steps:
@@ -651,90 +784,128 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
                 # loss was divided by grad_accum above; multiply back for logging
                 batch_loss = loss.item() * gradient_accumulation_steps
                 current_lr = scheduler.get_last_lr()[0]
+                running_loss_sum += batch_loss
+                running_avg_loss = running_loss_sum / global_step
 
                 logger.info(
                     f"Step {global_step}/{num_steps} | "
-                    f"train loss: {batch_loss:.4f} | lr: {current_lr:.2e}"
+                    f"train loss: {batch_loss:.4f} | "
+                    f"running avg: {running_avg_loss:.4f} | "
+                    f"lr: {current_lr:.2e}"
                 )
                 pd.DataFrame(
-                    [[global_step, batch_loss, current_lr]],
-                    columns=['step', 'train_loss_batch', 'learning_rate']
+                    [[global_step, batch_loss, running_avg_loss, current_lr]],
+                    columns=['step', 'train_loss_batch',
+                             'train_loss_running_avg', 'learning_rate']
                 ).to_csv(train_loss_csv, mode='a', header=False, index=False)
 
-                # ---- Full eval every eval_interval steps (expensive) ----
-                # Runs the entire train and val datasets through the model.
-                # Produces AUROC/AUPRC + saves checkpoint if improved.
-                # Keep eval_interval >= 100 for large datasets to avoid
-                # spending more time evaluating than training.
+                # ---- Save checkpoint every eval_interval steps (always) ----
                 if global_step % eval_interval == 0:
-                    current_mem = max(
-                        torch.cuda.memory_allocated(g) / 1024**3 for g in gpu_list
-                    )
+                    model_to_save = model.module if use_multi_gpu else model
+                    ckpt_path = checkpoints_dir / f'step_{global_step}.pt'
+                    torch.save({
+                        'step': global_step,
+                        'model_state_dict': model_to_save.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': {
+                            'current_step': scheduler.current_step,
+                            'warmup_steps': scheduler.warmup_steps,
+                            'total_steps': scheduler.total_steps,
+                            'base_lrs': scheduler.base_lrs,
+                        },
+                        'running_loss_sum': running_loss_sum,
+                        'config': exp_config,
+                        'gpu_list': gpu_list,
+                    }, ckpt_path)
+                    logger.info(f"  -> Checkpoint saved: checkpoints/step_{global_step}.pt")
 
-                    train_loss, train_auroc, train_auprc = evaluate_model(
-                        model, train_loader, criterion, device)
-                    val_loss, val_auroc, val_auprc = evaluate_model(
-                        model, val_loader, criterion, device)
+                    # ---- Optional inline eval (only if do_eval=True) ----
+                    if do_eval:
+                        current_mem = max(
+                            torch.cuda.memory_allocated(g) / 1024**3 for g in gpu_list
+                        )
+                        train_loss_sub, train_auroc_sub, train_auprc_sub = \
+                            evaluate_model_subset(
+                                model, train_loader.dataset, criterion, device,
+                                n_samples=train_eval_samples,
+                                batch_size=eval_batch_size,
+                            )
+                        val_loss, val_auroc, val_auprc = evaluate_model(
+                            model, val_eval_loader, criterion, device)
 
-                    eval_metrics['steps'].append(global_step)
-                    eval_metrics['train_loss'].append(train_loss)
-                    eval_metrics['train_auroc'].append(train_auroc)
-                    eval_metrics['train_auprc'].append(train_auprc)
-                    eval_metrics['val_loss'].append(val_loss)
-                    eval_metrics['val_auroc'].append(val_auroc)
-                    eval_metrics['val_auprc'].append(val_auprc)
-                    eval_metrics['learning_rate'].append(current_lr)
-                    eval_metrics['gpu_memory_gb'].append(current_mem)
+                        eval_metrics['steps'].append(global_step)
+                        eval_metrics['train_loss_subset'].append(train_loss_sub)
+                        eval_metrics['train_auroc_subset'].append(train_auroc_sub)
+                        eval_metrics['train_auprc_subset'].append(train_auprc_sub)
+                        eval_metrics['val_loss'].append(val_loss)
+                        eval_metrics['val_auroc'].append(val_auroc)
+                        eval_metrics['val_auprc'].append(val_auprc)
+                        eval_metrics['learning_rate'].append(current_lr)
+                        eval_metrics['gpu_memory_gb'].append(current_mem)
 
-                    row = pd.DataFrame(
-                        {k_: [v[-1]] for k_, v in eval_metrics.items()}
-                    )
-                    row.to_csv(metrics_csv, mode='a', header=False, index=False)
+                        row = pd.DataFrame(
+                            {k_: [v[-1]] for k_, v in eval_metrics.items()}
+                        )
+                        row.to_csv(metrics_csv, mode='a', header=False, index=False)
 
-                    logger.info(
-                        f"[EVAL] Step {global_step}/{num_steps} | "
-                        f"Train AUROC: {train_auroc:.4f}, AUPRC: {train_auprc:.4f} | "
-                        f"Val AUROC: {val_auroc:.4f}, AUPRC: {val_auprc:.4f} | "
-                        f"GPU mem (max): {current_mem:.2f} GB"
-                    )
+                        logger.info(
+                            f"[EVAL] Step {global_step}/{num_steps} | "
+                            f"Train (subset) AUROC: {train_auroc_sub:.4f}, "
+                            f"AUPRC: {train_auprc_sub:.4f} | "
+                            f"Val AUROC: {val_auroc:.4f}, AUPRC: {val_auprc:.4f} | "
+                            f"GPU mem (max): {current_mem:.2f} GB"
+                        )
 
-                    if val_auroc > best_val_auroc:
-                        best_val_auroc = val_auroc
-                        best_val_auprc = val_auprc
-                        # Unwrap DataParallel before saving — mirrors NT2_lora_sweep.py
-                        model_to_save = model.module if use_multi_gpu else model
+                        # Update checkpoint with eval metrics now that we have them
                         torch.save({
                             'step': global_step,
                             'model_state_dict': model_to_save.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'scheduler_state_dict': {
+                                'current_step': scheduler.current_step,
+                                'warmup_steps': scheduler.warmup_steps,
+                                'total_steps': scheduler.total_steps,
+                                'base_lrs': scheduler.base_lrs,
+                            },
+                            'running_loss_sum': running_loss_sum,
                             'val_auroc': val_auroc,
                             'val_auprc': val_auprc,
+                            'train_auroc_subset': train_auroc_sub,
                             'config': exp_config,
                             'gpu_list': gpu_list,
-                        }, exp_dir / 'best_model.pt')
-                        logger.info(
-                            f"  -> New best: AUROC={val_auroc:.4f}, "
-                            f"AUPRC={val_auprc:.4f}"
-                        )
+                        }, ckpt_path)
 
-                    if early_stopping(val_auroc):
-                        logger.info(
-                            f"Early stopping triggered at step {global_step}"
-                        )
-                        break
-
-                    model.train()
+                        if val_auroc > best_val_auroc:
+                            best_val_auroc = val_auroc
+                            best_val_auprc = val_auprc
+                            torch.save({
+                                'step': global_step,
+                                'model_state_dict': model_to_save.state_dict(),
+                                'optimizer_state_dict': optimizer.state_dict(),
+                                'scheduler_state_dict': {
+                                    'current_step': scheduler.current_step,
+                                    'warmup_steps': scheduler.warmup_steps,
+                                    'total_steps': scheduler.total_steps,
+                                    'base_lrs': scheduler.base_lrs,
+                                },
+                                'running_loss_sum': running_loss_sum,
+                                'val_auroc': val_auroc,
+                                'val_auprc': val_auprc,
+                                'train_auroc_subset': train_auroc_sub,
+                                'config': exp_config,
+                                'gpu_list': gpu_list,
+                            }, exp_dir / 'best_model.pt')
+                            logger.info(
+                                f"  -> New best: AUROC={val_auroc:.4f}, "
+                                f"AUPRC={val_auprc:.4f}"
+                            )
 
         # ---- Post-training ----
-        metrics_df = pd.DataFrame(eval_metrics)
-        metrics_df.to_csv(exp_dir / 'training_metrics_final.csv', index=False)
-
-        if not metrics_df.empty:
-            generate_plots(metrics_df, exp_dir, exp_id, combine_mode)
-        else:
-            logger.warning(
-                "No eval checkpoints recorded — increase num_steps or "
-                "decrease eval_interval so at least one eval is triggered."
-            )
+        if do_eval:
+            metrics_df = pd.DataFrame(eval_metrics)
+            metrics_df.to_csv(exp_dir / 'training_metrics_final.csv', index=False)
+            if not metrics_df.empty:
+                generate_plots(metrics_df, exp_dir, exp_id, combine_mode)
 
         peak_gpu = max(
             torch.cuda.max_memory_allocated(g) / 1024**3 for g in gpu_list
@@ -746,8 +917,9 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
             'combine_mode': combine_mode,
             'config': exp_config,
             'gpu_list': gpu_list,
-            'best_val_auroc': best_val_auroc,
-            'best_val_auprc': best_val_auprc,
+            'do_eval': do_eval,
+            'best_val_auroc': best_val_auroc if do_eval else None,
+            'best_val_auprc': best_val_auprc if do_eval else None,
             'total_time_hours': total_time / 3600,
             'peak_gpu_memory_gb': peak_gpu,
             'total_steps': global_step,
@@ -759,8 +931,9 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
 
         logger.info(
             f"Experiment {exp_id} ({combine_mode}) done: "
-            f"AUROC={best_val_auroc:.4f}, AUPRC={best_val_auprc:.4f}, "
             f"time={total_time / 3600:.2f}h, peak GPU={peak_gpu:.2f} GB"
+            + (f", AUROC={best_val_auroc:.4f}, AUPRC={best_val_auprc:.4f}"
+               if do_eval else " (eval disabled — run evaluate_checkpoints.py)")
         )
         return summary
 
@@ -776,15 +949,19 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
 
 def generate_plots(metrics_df, exp_dir, exp_id, combine_mode):
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    fig.suptitle(f'Exp {exp_id} ({combine_mode}) Train vs Val', fontsize=14)
+    fig.suptitle(f'Exp {exp_id} ({combine_mode}) Train subset vs Val', fontsize=14)
 
-    for ax, metric, label in zip(
-        axes, ['loss', 'auroc', 'auprc'], ['Loss', 'AUROC', 'AUPRC']
-    ):
-        tcol, vcol = f'train_{metric}', f'val_{metric}'
+    plot_pairs = [
+        ('train_loss_subset',  'val_loss',       'Loss'),
+        ('train_auroc_subset', 'val_auroc',       'AUROC'),
+        ('train_auprc_subset', 'val_auprc',       'AUPRC'),
+    ]
+    for ax, (tcol, vcol, label) in zip(axes, plot_pairs):
         if tcol in metrics_df.columns and vcol in metrics_df.columns:
-            ax.plot(metrics_df['steps'], metrics_df[tcol], label='Train', linewidth=2)
-            ax.plot(metrics_df['steps'], metrics_df[vcol], label='Val', linewidth=2)
+            ax.plot(metrics_df['steps'], metrics_df[tcol],
+                    label='Train (5k subset)', linewidth=2)
+            ax.plot(metrics_df['steps'], metrics_df[vcol],
+                    label='Val (full)', linewidth=2)
             ax.set_xlabel('Steps')
             ax.set_ylabel(label)
             ax.set_title(label)
@@ -810,7 +987,9 @@ def run_single_experiment(args):
 def run_all_experiments(train_path, val_path, output_dir,
                         available_gpus=(0, 1, 2, 3), k=6,
                         batch_size_override=None, grad_accum_override=None,
-                        eval_interval=1000, gpus_per_experiment=4):
+                        eval_interval=1000, gpus_per_experiment=4,
+                        train_eval_samples=10000, eval_batch_size=256,
+                        do_eval=True):
     """
     Run all experiments in EXPERIMENT_CONFIGS.
 
@@ -837,6 +1016,8 @@ def run_all_experiments(train_path, val_path, output_dir,
     logger.info(f"Available GPUs     : {list(available_gpus)}")
     logger.info(f"GPUs per experiment: {gpus_per_experiment}")
     logger.info(f"Eval interval      : {eval_interval} steps")
+    logger.info(f"Train eval samples : {train_eval_samples}")
+    logger.info(f"Do eval            : {do_eval}")
 
     # Assign a contiguous GPU block to each experiment
     experiment_args = []
@@ -852,6 +1033,9 @@ def run_all_experiments(train_path, val_path, output_dir,
                                             or cfg['gradient_accumulation_steps']),
             'k': k,
             'eval_interval': eval_interval,
+            'train_eval_samples': train_eval_samples,
+            'eval_batch_size': eval_batch_size,
+            'do_eval': do_eval,
         }
         experiment_args.append(
             (cfg, train_path, val_path, str(output_dir), gpu_list, hyperparams)
@@ -921,6 +1105,23 @@ def main():
                              'by gpus_per_experiment)')
     parser.add_argument('--gradient_accumulation_steps', type=int, default=None,
                         help='Override gradient accumulation steps')
+    parser.add_argument('--no_eval', action='store_true',
+                        help='Disable all evaluation during training. Checkpoints '
+                             'are still saved every eval_interval steps. Use '
+                             'evaluate_checkpoints.py in parallel to evaluate offline. '
+                             'Recommended when running the companion eval script.')
+    parser.add_argument('--eval_batch_size', type=int, default=256,
+                        help='Batch size used during evaluation passes (default: 256). '
+                             'Can be much larger than --batch_size because eval runs '
+                             'sequentially under torch.no_grad() — no activation graphs, '
+                             'gradients, or optimizer states in memory. Only reduce if '
+                             'running eval simultaneously with another training process '
+                             'on the same GPUs.')
+    parser.add_argument('--train_eval_samples', type=int, default=10000,
+                        help='Number of random training samples to use for train '
+                             'AUROC/AUPRC estimation at each eval checkpoint '
+                             '(default: 5000). Full train eval can be done offline '
+                             'by reloading any saved checkpoint from checkpoints/.')
     parser.add_argument('--eval_interval', type=int, default=1000,
                         help='Run full train+val evaluation every N optimizer steps '
                              '(default: 1000). Training loss is logged every step for free. '
@@ -957,6 +1158,9 @@ def main():
         grad_accum_override=args.gradient_accumulation_steps,
         eval_interval=args.eval_interval,
         gpus_per_experiment=args.gpus_per_experiment,
+        train_eval_samples=args.train_eval_samples,
+        eval_batch_size=args.eval_batch_size,
+        do_eval=not args.no_eval,
     )
 
     print("\n" + "=" * 80)
