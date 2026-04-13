@@ -1,5 +1,22 @@
-python training/NT2_BLBvsPLP.py \
+# Final model
+
+# Training & evaluation in one script; increase eval_batch_size to speed up
+python training/NT2_ref_alt_contrast.py \
     --train_path data/splits/ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_training.tsv \
     --val_path data/splits/ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_validation.tsv \
-    --output_dir results/NT2_seq12k_BLBvsPLP_lr3e-5 \
-    --gpus 3
+    --output_dir results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp \
+    --gpus 0 1 2 3 --gpus_per_experiment 4 \
+    --batch_size 8 --gradient_accumulation_steps 4 \
+    --eval_interval 1000 \
+    --eval_batch_size 256 \
+    --train_eval_samples 10000
+
+# # Evaluation only
+# python training/evaluate_checkpoints.py \
+#     --checkpoints_dir results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/checkpoints \
+#     --train_path data/splits/ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_training.tsv \
+#     --val_path data/splits/ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_validation.tsv \
+#     --num_steps 17000 \
+#     --eval_interval 1000 \
+#     --gpus 0 1 2 3 \
+#     --batch_size 256
