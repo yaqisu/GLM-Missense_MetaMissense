@@ -3,17 +3,14 @@
 Dual-Input (Reference + Alternate) NT2 LoRA Fine-Tuning
 ========================================================
 Siamese-style architecture: both ref and alt sequences are encoded
-through the shared NT2+LoRA backbone, CNN extracts features at the
-variant position for each, then [ref, alt, ref - alt] are concatenated
-and passed to a classification head.
+through the shared NT2+LoRA backbone, variant-position embeddings are
+extracted and passed through a shared 2-layer MLP feature extractor,
+then [ref, alt, ref - alt] are concatenated and passed to a
+classification head.
 
-Fixed config: NT2 + 2-layer CNN + variant_position + LoRA rank 32
+Fixed config: NT2 + 2-layer MLP + variant_position + LoRA rank 32
 
-Addresses Reviewer 5's suggestion:
-  "Since variant pathogenicity is a function of difference between
-   the wild type and alternate sequence, the authors should have
-   explored strategies where both the reference and alternate
-   sequence are supplied so that the model can contrast them."
+
 """
 
 import os
@@ -49,10 +46,10 @@ EXPERIMENT_CONFIGS = [
         "description": "Dual-input (ref+alt) Siamese, combine=[concat, diff]",
         "combine_mode": "concat_diff",  # [ref, alt, ref - alt]
         "lora_rank": 32,
-        "batch_size": 4,
-        "num_steps": 8000,
-        "gradient_accumulation_steps": 8,
-        "learning_rate": 3e-5,
+        "batch_size": 2,
+        "num_steps": 4000,
+        "gradient_accumulation_steps": 2,
+        "learning_rate": 5e-5,
     },
     #{
     #    "exp_id": 2,
@@ -69,29 +66,33 @@ EXPERIMENT_CONFIGS = [
         "description": "Dual-input (ref+alt) Siamese, combine=[concat only]",
         "combine_mode": "concat_only",  # [ref, alt]
         "lora_rank": 32,
-        "batch_size": 4,
-        "num_steps": 8000,
-        "gradient_accumulation_steps": 8,
-        "learning_rate": 3e-5,
+        "batch_size": 2,
+        "num_steps": 4000,
+        "gradient_accumulation_steps": 2,
+        "learning_rate": 5e-5,
     },
 ]
 
 
 # ============================================================================
-# CNN Feature Extractor (shared between ref and alt arms)
+# MLP Feature Extractor (shared between ref and alt arms)
 # ============================================================================
 
-class CNNFeatureExtractor(nn.Module):
-    """2-layer CNN that extracts features at the variant position.
-    Returns a feature vector (not logits) for downstream combination."""
-    def __init__(self, input_dim=1024, out_dim=128, dropout=0.1):
-        super(CNNFeatureExtractor, self).__init__()
+class MLPFeatureExtractor(nn.Module):
+    """2-layer MLP that extracts features at the variant position.
+    Extracts the hidden state at the variant token, then projects
+    through two linear layers to produce a feature vector."""
+    def __init__(self, input_dim=1024, out_dim=256, dropout=0.1):
+        super(MLPFeatureExtractor, self).__init__()
 
-        self.conv1 = nn.Conv1d(input_dim, 256, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm1d(256)
-        self.conv2 = nn.Conv1d(256, out_dim, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm1d(out_dim)
-        self.dropout = nn.Dropout(p=dropout)
+        self.feature_extractor = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+            nn.Linear(512, out_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+        )
 
     def forward(self, x, variant_position):
         """
@@ -101,22 +102,9 @@ class CNNFeatureExtractor(nn.Module):
         Returns:
             features: (batch, out_dim) at the variant position
         """
-        x = x.transpose(1, 2)  # (batch, input_dim, seq_len)
-
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu(x)
-        x = self.dropout(x)
-
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = F.relu(x)
-        x = self.dropout(x)
-
-        x = x.transpose(1, 2)  # (batch, seq_len, out_dim)
-
-        # Extract at variant position
-        features = x[:, variant_position, :]  # (batch, out_dim)
+        # Extract embedding at variant position
+        pooled = x[:, variant_position, :]  # (batch, input_dim)
+        features = self.feature_extractor(pooled)  # (batch, out_dim)
         return features
 
 
@@ -125,15 +113,15 @@ class CNNFeatureExtractor(nn.Module):
 # ============================================================================
 
 class NT2_DualInput(nn.Module):
-    """Siamese NT2 model: shared backbone + CNN for ref and alt sequences,
+    """Siamese NT2 model: shared backbone + MLP for ref and alt sequences,
     combined features fed to a classification head."""
 
     def __init__(self, base_model, lora_rank=32, combine_mode='concat_diff',
-                 cnn_out_dim=128):
+                 mlp_out_dim=256):
         super(NT2_DualInput, self).__init__()
 
         self.combine_mode = combine_mode
-        self.cnn_out_dim = cnn_out_dim
+        self.mlp_out_dim = mlp_out_dim
 
         # ---- Shared NT2 backbone with LoRA ----
         self.bert = base_model
@@ -157,20 +145,20 @@ class NT2_DualInput(nn.Module):
         self.bert.print_trainable_parameters()
         print("=" * 80)
 
-        # ---- Shared CNN feature extractor ----
-        self.cnn = CNNFeatureExtractor(input_dim=1024, out_dim=cnn_out_dim)
+        # ---- Shared MLP feature extractor ----
+        self.mlp = MLPFeatureExtractor(input_dim=1024, out_dim=mlp_out_dim)
 
         # ---- Classification head ----
         # Input dim depends on combine mode
         if combine_mode == 'concat_diff':
-            # [ref, alt, ref - alt] → 3 * cnn_out_dim
-            head_input_dim = 3 * cnn_out_dim
+            # [ref, alt, ref - alt] → 3 * mlp_out_dim
+            head_input_dim = 3 * mlp_out_dim
         elif combine_mode == 'concat_only':
-            # [ref, alt] → 2 * cnn_out_dim
-            head_input_dim = 2 * cnn_out_dim
+            # [ref, alt] → 2 * mlp_out_dim
+            head_input_dim = 2 * mlp_out_dim
         elif combine_mode == 'diff_only':
-            # ref - alt → cnn_out_dim
-            head_input_dim = cnn_out_dim
+            # ref - alt → mlp_out_dim
+            head_input_dim = mlp_out_dim
         else:
             raise ValueError(f"Unknown combine_mode: {combine_mode}")
 
@@ -215,9 +203,9 @@ class NT2_DualInput(nn.Module):
         if variant_position >= seq_len:
             variant_position = seq_len // 2
 
-        # Extract CNN features at variant position
-        ref_features = self.cnn(ref_embed, variant_position)  # (batch, 128)
-        alt_features = self.cnn(alt_embed, variant_position)  # (batch, 128)
+        # Extract MLP features at variant position
+        ref_features = self.mlp(ref_embed, variant_position)  # (batch, 256)
+        alt_features = self.mlp(alt_embed, variant_position)  # (batch, 256)
 
         # Combine features
         if self.combine_mode == 'concat_diff':
@@ -723,7 +711,7 @@ def main():
     print("=" * 80)
     print("Dual-Input (Ref + Alt) Siamese NT2 Experiments")
     print("  Backbone: NT2 500M multi-species + LoRA rank 32")
-    print("  Feature extractor: 2-layer CNN @ variant position")
+    print("  Feature extractor: 2-layer MLP @ variant position")
     if args.batch_size is not None:
         print(f"  Batch size override: {args.batch_size}")
     if args.gradient_accumulation_steps is not None:
