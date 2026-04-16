@@ -130,9 +130,9 @@ def parse_args():
 
     # Anchor / evaluation settings
     p.add_argument('--label_col',   default='true_label')
-    p.add_argument('--anchor_cols', default='REVEL_score,AlphaMissense_score',
+    p.add_argument('--anchor_cols', default='REVEL_score,AlphaMissense_score,CADD_phred,ESM1b_converted_rankscore,SIFT_converted_rankscore,Polyphen2_HVAR_score',
                    help='Comma-separated cols required to be non-missing in the '
-                        'shared evaluation subset (default: REVEL_score,AlphaMissense_score)')
+                        'shared evaluation subset (default: REVEL_score,AlphaMissense_score,CADD_phred,ESM1b_converted_rankscore,SIFT_converted_rankscore,Polyphen2_HVAR_score)')
     p.add_argument('--top_n',       default=20, type=int,
                    help='Number of top dbNSFP methods to include in plots (default: 20)')
 

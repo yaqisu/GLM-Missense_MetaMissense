@@ -1,0 +1,5 @@
+dataset_key	seq12k_input	seq6k_input	seq30k_input	finetune_score	subset_ids	gpu
+ClinVar.251103.BLBvsPLP	data/splits/ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_validation.tsv	data/splits/ClinVar.251103.missense.hg38.seq6k.BLBvsPLP_validation.tsv	data/splits/ClinVar.251103.missense.hg38.seq30k.BLBvsPLP_validation.tsv	results/predictions/ClinVar.251103.BLBvsPLP/finetune_NT2.tsv		1
+ClinVar.251103.BvsP	reuse:ClinVar.251103.BLBvsPLP			results/predictions/ClinVar.251103.BLBvsPLP/finetune_NT2.tsv	data/sequences/ClinVar.251103.missense.hg38.BvsP_ids.tsv	1
+ClinVar.260309only.BLBvsPLP	data/sequences/ClinVar.260309only.missense.hg38.seq12k.tsv	data/sequences/ClinVar.260309only.missense.hg38.seq6k.tsv	data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv	results/predictions/ClinVar.260309only.BLBvsPLP/finetune_NT2.tsv		2
+ClinVar.260309only.BvsP	reuse:ClinVar.260309only.BLBvsPLP			results/predictions/ClinVar.260309only.BLBvsPLP/finetune_NT2.tsv	data/sequences/ClinVar.260309only.missense.hg38.BvsP_ids.tsv	2

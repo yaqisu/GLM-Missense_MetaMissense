@@ -2,11 +2,15 @@
 """
 score_variants.py
 -----------------
-Score variants from a pre-processed sequence TSV file using a fine-tuned
-Nucleotide Transformer 2 (NT2) model with LoRA and CNN classifier.
+Score variants from a pre-processed sequence TSV file using the fine-tuned
+Nucleotide Transformer 2 (NT2) Siamese Ref-Alt Contrast model.
 
-The input TSV is expected to have the same format as the split files produced
-by preprocessing/split_data_fixed_chroms.py:
+Architecture: Both ref and alt sequences are encoded through a shared NT2+LoRA
+backbone. The variant-position token is extracted from each arm, projected with
+a shared MLPProjector, combined as [ref, alt, ref - alt], and passed to a
+2-layer MLPClassifierHead.
+
+Input TSV columns (same format as preprocessing pipeline output):
     variant_id  chromosome  position  ref_allele  alt_allele
     upstream_flank  downstream_flank  ref_sequence  alt_sequence  [label]
 
@@ -17,7 +21,7 @@ Output TSV columns:
     pathogenicity_score  predicted_label
 
     pathogenicity_score : sigmoid probability (0-1), higher = more pathogenic
-    predicted_label     : 0 (benign) or 1 (pathogenic) at 0.5 threshold
+    predicted_label     : 0 (benign) or 1 (pathogenic) at threshold (default 0.5)
 
 Usage:
     python scoring/score_variants.py \
@@ -41,17 +45,17 @@ import pandas as pd
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 from peft import LoraConfig, get_peft_model, TaskType
 
+
 # ============================================================================
 # Hardcoded config for the released best model
 # (architecture must match the weights in best_model.pt exactly)
 # ============================================================================
 
 MODEL_CONFIG = {
-    "classifier_type":    "cnn",
-    "embedding_strategy": "full-variant_position",
-    "lora_rank":          32,
-    "num_layers":         2,
-    "base_model":         "InstaDeepAI/nucleotide-transformer-v2-500m-multi-species"
+    "combine_mode": "concat_diff",   # [ref, alt, ref - alt] → head input = 3 * proj_dim
+    "lora_rank":    32,
+    "proj_dim":     256,
+    "base_model":   "InstaDeepAI/nucleotide-transformer-v2-500m-multi-species",
 }
 
 logging.basicConfig(
@@ -63,114 +67,92 @@ logger = logging.getLogger('score_variants')
 
 
 # ============================================================================
-# Model Architecture (must match training code exactly)
+# Model Architecture  (must match NT2_ref_alt_contrast.py exactly)
 # ============================================================================
 
-class CNNClassifier(nn.Module):
-    """CNN classifier — must match architecture used during training"""
-    def __init__(self, input_dim=1024, dropout=0.1, pooling_strategy='mean_pool'):
-        super(CNNClassifier, self).__init__()
-        self.pooling_strategy = pooling_strategy
-        self.conv1 = nn.Conv1d(input_dim, 256, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm1d(256)
-        self.conv2 = nn.Conv1d(256, 128, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.dropout = nn.Dropout(p=dropout)
-        self.fc = nn.Linear(128, 1)
+class MLPProjector(nn.Module):
+    """
+    Projects a single variant-position token embedding (1024-d) from the NT2
+    backbone down to proj_dim for combination with the other arm.
+    Shared weights — used for both ref and alt arms.
+    """
+    def __init__(self, input_dim=1024, proj_dim=256, dropout=0.1):
+        super(MLPProjector, self).__init__()
+        self.projector = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+            nn.Linear(512, proj_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+        )
 
-    def forward(self, x, variant_position=None, attention_mask=None):
-        x = x.transpose(1, 2)
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu(x)
-        x = self.dropout(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = F.relu(x)
-        x = self.dropout(x)
-        x = x.transpose(1, 2)
-
-        if self.pooling_strategy == 'mean_pool':
-            if attention_mask is not None:
-                mask = attention_mask.unsqueeze(-1).float()
-                pooled = torch.sum(mask * x, dim=1) / torch.sum(mask, dim=1)
-            else:
-                pooled = torch.mean(x, dim=1)
-        elif self.pooling_strategy == 'variant_position':
-            if variant_position is None:
-                raise ValueError("variant_position required for variant_position pooling")
-            pooled = x[:, variant_position, :]
-        else:
-            raise ValueError(f"Unknown pooling strategy: {self.pooling_strategy}")
-
-        return self.fc(pooled).squeeze(-1)
+    def forward(self, x):
+        """
+        Args:
+            x: (batch, input_dim) — single-token embedding at variant position
+        Returns:
+            (batch, proj_dim)
+        """
+        return self.projector(x)
 
 
-class MLPClassifier(nn.Module):
-    """MLP classifier"""
-    def __init__(self, input_dim=1024, num_layers=2, dropout=0.1):
-        super(MLPClassifier, self).__init__()
-        if num_layers == 2:
-            self.classifier = nn.Sequential(
-                nn.Linear(input_dim, 512), nn.ReLU(inplace=True), nn.Dropout(p=dropout),
-                nn.Linear(512, 256),       nn.ReLU(inplace=True), nn.Dropout(p=dropout),
-                nn.Linear(256, 1)
-            )
-        elif num_layers == 3:
-            self.classifier = nn.Sequential(
-                nn.Linear(input_dim, 512), nn.ReLU(inplace=True), nn.Dropout(p=dropout),
-                nn.Linear(512, 256),       nn.ReLU(inplace=True), nn.Dropout(p=dropout),
-                nn.Linear(256, 128),       nn.ReLU(inplace=True), nn.Dropout(p=dropout),
-                nn.Linear(128, 1)
-            )
-        else:
-            raise ValueError(f"num_layers must be 2 or 3, got {num_layers}")
+class MLPClassifierHead(nn.Module):
+    """
+    2-layer MLP classification head operating on the combined ref+alt features.
+
+    input_dim depends on combine_mode:
+        concat_diff : 3 * proj_dim   ([ref, alt, ref - alt])
+        concat_only : 2 * proj_dim   ([ref, alt])
+        diff_only   :     proj_dim   (ref - alt)
+    """
+    def __init__(self, input_dim, dropout=0.1):
+        super(MLPClassifierHead, self).__init__()
+        self.classifier = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+            nn.Linear(256, 1),
+        )
 
     def forward(self, x):
         return self.classifier(x).squeeze(-1)
 
 
-class TransformerClassifier(nn.Module):
-    """Transformer classifier"""
-    def __init__(self, input_dim=1024, embed_dim=128, nhead=2,
-                 dim_feedforward=512, dropout=0.1, pooling_strategy='mean_pool'):
-        super(TransformerClassifier, self).__init__()
-        self.pooling_strategy = pooling_strategy
-        self.input_projection = nn.Linear(input_dim, embed_dim)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim, nhead=nhead, dim_feedforward=dim_feedforward,
-            dropout=dropout, batch_first=True
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
-        self.dropout = nn.Dropout(p=dropout)
-        self.fc = nn.Linear(embed_dim, 1)
+class NT2_RefAltContrast(nn.Module):
+    """
+    Siamese NT2 model with shared LoRA backbone and MLP head.
 
-    def forward(self, x, variant_position=None, attention_mask=None):
-        x = self.input_projection(x)
-        x = self.transformer(x)
-        if self.pooling_strategy == 'mean_pool':
-            if attention_mask is not None:
-                mask = attention_mask.unsqueeze(-1).float()
-                pooled = torch.sum(mask * x, dim=1) / torch.sum(mask, dim=1)
-            else:
-                pooled = torch.mean(x, dim=1)
-        elif self.pooling_strategy == 'variant_position':
-            pooled = x[:, variant_position, :]
-        else:
-            raise ValueError(f"Unknown pooling strategy: {self.pooling_strategy}")
-        return self.fc(self.dropout(pooled)).squeeze(-1)
+    Pipeline:
+        ref_sequence → NT2+LoRA → hidden states → [variant_position token]
+                                                          ↓ MLPProjector
+                                                       ref_feat
+        alt_sequence → NT2+LoRA → hidden states → [variant_position token]
+                                                          ↓ MLPProjector
+                                                       alt_feat
+                                                          ↓
+                                               combine(ref_feat, alt_feat)
+                                                          ↓
+                                              MLPClassifierHead → logit
 
+    Memory note: the ref hidden state (~128 MB for batch=4) is extracted and
+    explicitly freed before the alt forward pass to avoid holding both full
+    hidden state tensors in GPU memory simultaneously.
+    """
 
-class NT2_FineTune(nn.Module):
-    """NT2 fine-tuning wrapper with LoRA"""
-    def __init__(self, base_model, classifier_type, num_layers,
-                 embedding_strategy, lora_rank):
-        super(NT2_FineTune, self).__init__()
+    def __init__(self, base_model, lora_rank=32, combine_mode='concat_diff',
+                 proj_dim=256, dropout=0.1):
+        super(NT2_RefAltContrast, self).__init__()
+
+        self.combine_mode = combine_mode
+        self.proj_dim = proj_dim
+
+        # ---- Shared NT2 backbone with LoRA ----
         self.bert = base_model
-        self.embedding_strategy = embedding_strategy
-        self.classifier_type = classifier_type
 
-        # Freeze base model and apply LoRA
         for param in self.bert.parameters():
             param.requires_grad = False
 
@@ -180,92 +162,130 @@ class NT2_FineTune(nn.Module):
             lora_alpha=lora_rank * 2,
             lora_dropout=0.1,
             target_modules=["query", "value"],
-            bias="none"
+            bias="none",
         )
         self.bert = get_peft_model(self.bert, lora_config)
         self.bert.enable_input_require_grads()
 
-        input_dim = 1024
-        if embedding_strategy.startswith('full-'):
-            pooling_strategy = embedding_strategy.split('-', 1)[1]
+        # ---- Shared MLP projector (same weights for both arms) ----
+        self.projector = MLPProjector(
+            input_dim=1024, proj_dim=proj_dim, dropout=dropout
+        )
+
+        # ---- MLP classification head ----
+        if combine_mode == 'concat_diff':
+            head_input_dim = 3 * proj_dim
+        elif combine_mode == 'concat_only':
+            head_input_dim = 2 * proj_dim
+        elif combine_mode == 'diff_only':
+            head_input_dim = proj_dim
         else:
-            pooling_strategy = 'mean_pool'
+            raise ValueError(f"Unknown combine_mode: {combine_mode}")
 
-        if classifier_type == "mlp":
-            self.classifier = MLPClassifier(input_dim, num_layers)
-        elif classifier_type == "cnn":
-            self.classifier = CNNClassifier(input_dim, pooling_strategy=pooling_strategy)
-        elif classifier_type == "transformer":
-            self.classifier = TransformerClassifier(input_dim, pooling_strategy=pooling_strategy)
-        else:
-            raise ValueError(f"Unknown classifier type: {classifier_type}")
+        self.classifier = MLPClassifierHead(input_dim=head_input_dim, dropout=dropout)
 
-    def forward(self, input_ids, attention_mask=None):
-        attention_mask = input_ids != 1
-
+    def _encode(self, input_ids):
+        """Run input_ids through NT2+LoRA. Returns last hidden state (batch, seq_len, 1024)."""
+        attention_mask = (input_ids != 1)  # pad token id = 1 for NT2
         outputs = self.bert(
             input_ids,
             attention_mask=attention_mask,
             encoder_attention_mask=attention_mask,
-            output_hidden_states=True
+            output_hidden_states=True,
         )
-        embed = outputs['hidden_states'][-1]
+        return outputs['hidden_states'][-1]  # (batch, seq_len, 1024)
 
-        if self.embedding_strategy == "variant_position":
-            variant_position = min(1000, embed.shape[1] - 1)
-            pooled_embed = embed[:, variant_position, :]
-            logits = self.classifier(pooled_embed)
+    def forward(self, ref_input_ids, alt_input_ids):
+        """
+        Args:
+            ref_input_ids : (batch, seq_len) — tokenized reference sequence
+            alt_input_ids : (batch, seq_len) — tokenized alternate sequence
+        Returns:
+            logits: (batch,)
+        """
+        # Variant is centered in a 12 kb window; with k=6 k-merization:
+        # 6000 bp / 6 = 1000 tokens upstream + 1 CLS token → position 1000
+        variant_position = 1000
 
-        elif self.embedding_strategy == "mean_pool":
-            mask = attention_mask.unsqueeze(-1).float()
-            pooled_embed = torch.sum(mask * embed, dim=1) / torch.sum(mask, dim=1)
-            logits = self.classifier(pooled_embed)
+        # ---- Ref arm ----
+        ref_hidden = self._encode(ref_input_ids)
+        seq_len = ref_hidden.shape[1]
+        if variant_position >= seq_len:
+            variant_position = seq_len // 2
+        ref_tok = ref_hidden[:, variant_position, :].clone()  # (batch, 1024)
+        del ref_hidden
+        torch.cuda.empty_cache()
 
-        elif self.embedding_strategy == "full":
-            logits = self.classifier(embed)
+        # ---- Alt arm ----
+        alt_hidden = self._encode(alt_input_ids)
+        alt_tok = alt_hidden[:, variant_position, :].clone()  # (batch, 1024)
+        del alt_hidden
+        torch.cuda.empty_cache()
 
-        elif self.embedding_strategy == "full-mean_pool":
-            logits = self.classifier(embed, attention_mask=attention_mask)
+        # ---- Project both tokens with shared MLP projector ----
+        ref_feat = self.projector(ref_tok)   # (batch, proj_dim)
+        alt_feat = self.projector(alt_tok)   # (batch, proj_dim)
 
-        elif self.embedding_strategy == "full-variant_position":
-            variant_position = min(1000, embed.shape[1] - 1)
-            logits = self.classifier(embed, variant_position=variant_position,
-                                     attention_mask=attention_mask)
+        # ---- Combine ----
+        if self.combine_mode == 'concat_diff':
+            combined = torch.cat([ref_feat, alt_feat, ref_feat - alt_feat], dim=1)
+        elif self.combine_mode == 'concat_only':
+            combined = torch.cat([ref_feat, alt_feat], dim=1)
+        elif self.combine_mode == 'diff_only':
+            combined = ref_feat - alt_feat
         else:
-            raise ValueError(f"Unknown embedding strategy: {self.embedding_strategy}")
+            raise ValueError(f"Unknown combine_mode: {self.combine_mode}")
 
-        return logits
+        return self.classifier(combined)  # (batch,)
 
 
 # ============================================================================
 # Dataset
 # ============================================================================
 
-class ScoringDataset(Dataset):
-    """Dataset for scoring — no label required"""
-    def __init__(self, sequences, tokenizer, max_length=2048):
-        self.sequences = sequences
+def kmerize(sequence: str, k: int) -> str:
+    """Split a DNA sequence into space-separated k-mers."""
+    return ' '.join(sequence[i:i + k] for i in range(0, len(sequence), k))
+
+
+class DualScoringDataset(Dataset):
+    """
+    Dataset for scoring — encodes both ref and alt sequences.
+    Label column is not required (inference-only).
+    """
+    def __init__(self, ref_sequences, alt_sequences, tokenizer, max_length=2048):
+        self.ref_sequences = ref_sequences.reset_index(drop=True)
+        self.alt_sequences = alt_sequences.reset_index(drop=True)
         self.tokenizer = tokenizer
         self.max_length = max_length
 
     def __len__(self):
-        return len(self.sequences)
+        return len(self.ref_sequences)
 
     def __getitem__(self, idx):
-        sequence = self.sequences.iloc[idx]
-        encoding = self.tokenizer.encode_plus(
-            sequence,
+        ref_enc = self.tokenizer.encode_plus(
+            self.ref_sequences.iloc[idx],
             add_special_tokens=True,
             max_length=self.max_length,
             return_token_type_ids=False,
             padding='max_length',
             return_attention_mask=True,
             return_tensors='pt',
-            truncation=True
+            truncation=True,
+        )
+        alt_enc = self.tokenizer.encode_plus(
+            self.alt_sequences.iloc[idx],
+            add_special_tokens=True,
+            max_length=self.max_length,
+            return_token_type_ids=False,
+            padding='max_length',
+            return_attention_mask=True,
+            return_tensors='pt',
+            truncation=True,
         )
         return {
-            'input_ids':      encoding['input_ids'].flatten(),
-            'attention_mask': encoding['attention_mask'].flatten(),
+            'ref_input_ids': ref_enc['input_ids'].flatten(),
+            'alt_input_ids': alt_enc['input_ids'].flatten(),
         }
 
 
@@ -274,7 +294,7 @@ class ScoringDataset(Dataset):
 # ============================================================================
 
 def load_model(model_path, device):
-    """Load fine-tuned model from .pt file using hardcoded MODEL_CONFIG"""
+    """Load Siamese ref-alt contrast model from .pt file using MODEL_CONFIG."""
     config = MODEL_CONFIG
     logger.info(f"Model config: {config}")
 
@@ -286,12 +306,11 @@ def load_model(model_path, device):
         config['base_model'], trust_remote_code=True
     )
 
-    model = NT2_FineTune(
+    model = NT2_RefAltContrast(
         base_model,
-        classifier_type=config['classifier_type'],
-        num_layers=config['num_layers'],
-        embedding_strategy=config['embedding_strategy'],
-        lora_rank=config['lora_rank']
+        lora_rank=config['lora_rank'],
+        combine_mode=config['combine_mode'],
+        proj_dim=config['proj_dim'],
     )
 
     logger.info(f"Loading model weights from {model_path}")
@@ -300,28 +319,36 @@ def load_model(model_path, device):
     model = model.to(device)
     model.eval()
 
-    logger.info(f"Model loaded. Checkpoint val AUC: {checkpoint.get('val_auc', 'N/A'):.4f}")
+    val_auc = checkpoint.get('val_auc', None)
+    if val_auc is not None:
+        logger.info(f"Model loaded. Checkpoint val AUC: {val_auc:.4f}")
+    else:
+        logger.info("Model loaded. (No val AUC stored in checkpoint)")
+
     return model, tokenizer
 
 
 def score(model, dataloader, device):
-    """Run inference and return pathogenicity scores"""
+    """Run inference and return pathogenicity scores."""
     all_scores = []
     with torch.no_grad():
         for i, batch in enumerate(dataloader):
-            input_ids      = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            logits = model(input_ids, attention_mask)
-            scores = torch.sigmoid(logits).cpu().numpy()
+            ref_ids = batch['ref_input_ids'].to(device)
+            alt_ids = batch['alt_input_ids'].to(device)
+            logits  = model(ref_ids, alt_ids)
+            scores  = torch.sigmoid(logits).cpu().numpy()
             all_scores.extend(scores)
             if (i + 1) % 10 == 0:
-                logger.info(f"  Scored {(i+1) * dataloader.batch_size} / {len(dataloader.dataset)} variants")
+                logger.info(
+                    f"  Scored {(i + 1) * dataloader.batch_size} / "
+                    f"{len(dataloader.dataset)} variants"
+                )
     return np.array(all_scores)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Score variants using a fine-tuned NT2 model.',
+        description='Score variants using the NT2 Siamese Ref-Alt Contrast model.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
@@ -337,8 +364,11 @@ Example:
                         help='Path to best_model.pt')
     parser.add_argument('--output',     '-o', required=True,
                         help='Output TSV file path')
-    parser.add_argument('--batch_size', '-b', type=int, default=16,
-                        help='Batch size for inference (default: 16)')
+    parser.add_argument('--batch_size', '-b', type=int, default=128,
+                        help='Batch size for inference (default: 128). Scoring runs '
+                             'under torch.no_grad() so no activations are stored — '
+                             'safe to use a much larger batch than training. '
+                             'Reduce to 32–64 if running on a smaller GPU.')
     parser.add_argument('--gpu',        '-g', type=int, default=0,
                         help='GPU id to use, -1 for CPU (default: 0)')
     parser.add_argument('--threshold',  '-t', type=float, default=0.5,
@@ -348,7 +378,7 @@ Example:
 
     args = parser.parse_args()
 
-    # Device setup
+    # ---- Device setup ----
     if args.gpu >= 0 and torch.cuda.is_available():
         device = torch.device(f'cuda:{args.gpu}')
         logger.info(f"Using GPU {args.gpu}: {torch.cuda.get_device_name(args.gpu)}")
@@ -356,29 +386,37 @@ Example:
         device = torch.device('cpu')
         logger.info("Using CPU")
 
-    # Load input data
+    # ---- Load input data ----
     logger.info(f"Loading input data from {args.input}")
     df = pd.read_csv(args.input, sep='\t')
     logger.info(f"Loaded {len(df)} variants")
 
-    # Apply k-mer tokenization (same as training)
-    sequences = df['alt_sequence'].apply(
-        lambda x: ' '.join([x[i:i+args.k] for i in range(0, len(x), args.k)])
-    )
+    required_cols = {'ref_sequence', 'alt_sequence'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"Input TSV is missing required columns: {missing}\n"
+            f"Found columns: {list(df.columns)}"
+        )
 
-    # Load model
+    # ---- K-merize both sequences ----
+    ref_seqs = df['ref_sequence'].apply(lambda x: kmerize(x, args.k))
+    alt_seqs = df['alt_sequence'].apply(lambda x: kmerize(x, args.k))
+
+    # ---- Load model ----
     model, tokenizer = load_model(args.model, device)
 
-    # Create dataloader
-    dataset = ScoringDataset(sequences, tokenizer, max_length=2048)
+    # ---- Create dataloader ----
+    dataset    = DualScoringDataset(ref_seqs, alt_seqs, tokenizer, max_length=2048)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
 
-    # Score
+    # ---- Score ----
     logger.info(f"Scoring {len(df)} variants...")
     scores = score(model, dataloader, device)
 
-    # Build output
-    output_df = df[['variant_id', 'chromosome', 'position', 'ref_allele', 'alt_allele']].copy()
+    # ---- Build output ----
+    output_df = df[['variant_id', 'chromosome', 'position',
+                    'ref_allele', 'alt_allele']].copy()
     output_df['pathogenicity_score'] = scores
     output_df['predicted_label']     = (scores >= args.threshold).astype(int)
 
@@ -389,16 +427,18 @@ Example:
         logger.info(f"AUC on labeled data: {auc:.4f}")
         output_df['true_label'] = df['label']
 
-    # Save output
+    # ---- Save output ----
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     output_df.to_csv(args.output, sep='\t', index=False)
     logger.info(f"Saved {len(output_df)} scored variants to {args.output}")
 
-    # Print summary
+    # ---- Summary ----
     n_patho  = (output_df['predicted_label'] == 1).sum()
     n_benign = (output_df['predicted_label'] == 0).sum()
-    logger.info(f"Summary: {n_patho} predicted pathogenic, {n_benign} predicted benign "
-                f"(threshold={args.threshold})")
+    logger.info(
+        f"Summary: {n_patho} predicted pathogenic, {n_benign} predicted benign "
+        f"(threshold={args.threshold})"
+    )
 
 
 if __name__ == '__main__':
