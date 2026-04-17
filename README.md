@@ -10,7 +10,7 @@ We fine-tune genomic language models (Nucleotide Transformer v2, Caduceus) on Cl
 
 If you just want to score variants using our best pre-trained model:
 
-**1. Download the model weights** (link TBD upon publication) and place at `scoring/model/best_model.pt`
+**1. Download the model weights (link TBD upon publication)** and place at `scoring/model/best_model.pt`
 
 **2. Prepare your input** — a TSV file with the same format as our split files (see [preprocessing](preprocessing/README.md) for how to generate this from a BED file). Required columns:
 ```
