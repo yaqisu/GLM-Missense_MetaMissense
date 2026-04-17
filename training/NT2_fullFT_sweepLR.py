@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """
-Reviewer Response Sweep for Nucleotide Transformer v2
-=====================================================
 (1) 2 (mean_pool / variant_position) × 3 (MLP / Transformer / CNN) × 3 (LoRA 8/16/32) × 3 (LR 1e-5/3e-5/5e-5) = 54 LoRA experiments
 (2) AUPRC added to all reported metrics
 (3) 4 full fine-tune experiments with different learning rates (1e-6, 5e-6, 1e-5, 3e-5)
