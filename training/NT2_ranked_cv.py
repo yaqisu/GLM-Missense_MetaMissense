@@ -1,38 +1,6 @@
 #!/usr/bin/env python3
 """
 Rank-Ordered 5-Fold Chromosome-Split Cross-Validation for NT2 LoRA Experiments
-================================================================================
-Reads experiment_ranking.json produced by summarize_sweep.py and runs 5-fold
-chromosome-split CV for each experiment configuration, ordered by mean rank
-(best first). You can safely Ctrl+C / terminate at any time and already-
-completed experiment results will be available.
-
-Only LoRA experiments are run (full fine-tune configs are skipped).
-
-Usage:
-    # First, generate the ranking:
-    python summarize_sweep.py /path/to/sweep_output --csv
-
-    # Then run CV in rank order:
-    python NT2_ranked_cv.py \
-        --ranking_json /path/to/sweep_output/experiment_ranking.json \
-        --data_path /path/to/combined_train_val.tsv \
-        --output_dir ./nt2_ranked_cv \
-        --gpus 0 1 2 3
-
-    # Only run top-5 configs:
-    python NT2_ranked_cv.py \
-        --ranking_json /path/to/sweep_output/experiment_ranking.json \
-        --data_path /path/to/combined_train_val.tsv \
-        --output_dir ./nt2_ranked_cv \
-        --top_n 5
-
-    # Override training steps:
-    python NT2_ranked_cv.py \
-        --ranking_json /path/to/sweep_output/experiment_ranking.json \
-        --data_path /path/to/combined_train_val.tsv \
-        --output_dir ./nt2_ranked_cv \
-        --num_steps 6000
 """
 
 import os
