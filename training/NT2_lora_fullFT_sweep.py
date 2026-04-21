@@ -69,10 +69,10 @@ def build_experiment_configs():
                     exp_id += 1
 
     # ------------------------------------------------------------------
-    # Part 2: 4 full fine-tune LR sweep experiments
+    # Part 2: 5 full fine-tune LR sweep experiments
     # Using CNN + full-variant_position (best from Phase 1)
     # ------------------------------------------------------------------
-    full_ft_lrs = [1e-6, 5e-6, 1e-5, 3e-5]
+    full_ft_lrs = [1e-6, 5e-6, 1e-5, 3e-5, 1e-4]
     for lr in full_ft_lrs:
         configs.append({
             "exp_id": exp_id,
