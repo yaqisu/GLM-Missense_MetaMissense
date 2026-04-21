@@ -1,5 +1,5 @@
 label	path	source	highlight
-finetune_NT2	results/predictions/ClinVar.260309only.BLBvsPLP/finetune_NT2.tsv	finetune	yes
+GLM-Missense	results/predictions/ClinVar.260309only.BLBvsPLP/GLM-Missense.tsv	finetune	yes
 zeroshot_CaduceusPS_seq30k	results/predictions/ClinVar.260309only.BLBvsPLP/zeroshot_CaduceusPS_seq30k.tsv	zeroshot	no
 zeroshot_CaduceusPh_seq30k	results/predictions/ClinVar.260309only.BLBvsPLP/zeroshot_CaduceusPh_seq30k.tsv	zeroshot	no
 zeroshot_NT1_seq6k	results/predictions/ClinVar.260309only.BLBvsPLP/zeroshot_NT1_seq6k.tsv	zeroshot	no

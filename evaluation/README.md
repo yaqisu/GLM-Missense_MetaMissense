@@ -209,100 +209,46 @@ For each dataset row, `run_evaluation.py` does the following:
 3. Runs `merge.py` → `merged.tsv`
 4. Runs `evaluate.py` → `eval_all/`, passing `--subset` for derived rows
 
-### Filtered and stratified evaluation
+### Stratified evaluation
 
-`run_evaluation.py` only runs the default full evaluation (`eval_all/`). For
-filtered or stratified runs, call `evaluate.py` directly:
-
-```bash
-# Rare variants only (AF < 1e-3)
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
-    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-3 \
-    --mode      filter \
-    --col       gnomAD4.1_joint_AF \
-    --threshold 1e-3
-
-# Rare variants only (AF < 1e-6)
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
-    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-6 \
-    --mode      filter \
-    --col       gnomAD4.1_joint_AF \
-    --threshold 1e-6
-
-# Highly conserved sites (phyloP > 3)
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
-    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_conserved_phylop \
-    --mode      filter \
-    --col       phyloP100way_vertebrate \
-    --threshold 3.0 \
-    --direction above
-
-# Highly conserved sites (GERP > 4)
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
-    --config    results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/eval_conserved_gerp \
-    --mode      filter \
-    --col       "GERP++_RS" \
-    --threshold 4.0 \
-    --direction above
-
-# Stratify by allele frequency bins
-python evaluation/evaluate.py \
-    --merged  results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
-    --config  results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
-    --outdir  results/predictions/ClinVar.251103.BLBvsPLP/eval_strat_af \
-    --mode    stratify \
-    --col     gnomAD4.1_joint_AF \
-    --strata  builtin_af
-
-# Stratify by GERP bins
-python evaluation/evaluate.py \
-    --merged  results/predictions/ClinVar.251103.BLBvsPLP/merged.tsv \
-    --config  results/predictions/ClinVar.251103.BLBvsPLP/merge_config.tsv \
-    --outdir  results/predictions/ClinVar.251103.BLBvsPLP/eval_strat_gerp \
-    --mode    stratify \
-    --col     "GERP++_RS" \
-    --strata  builtin_gerp
-```
-
-For derived (BvsP) datasets, always add `--subset`:
+Runs all three stratification analyses across all four datasets in one command.
+Automatically passes `--subset` for derived (BvsP) datasets.
 
 ```bash
-python evaluation/evaluate.py \
-    --merged    results/predictions/ClinVar.251103.BvsP/merged.tsv \
-    --config    results/predictions/ClinVar.251103.BvsP/merge_config.tsv \
-    --outdir    results/predictions/ClinVar.251103.BvsP/eval_rare_1e-3 \
-    --mode      filter \
-    --col       gnomAD4.1_joint_AF \
-    --threshold 1e-3 \
-    --subset    data/sequences/ClinVar.251103.missense.hg38.BvsP_ids.tsv
+python evaluation/run_stratified.py \
+    --config evaluation/pipeline_config.tsv
+
+# Dry run — preview all commands without executing
+python evaluation/run_stratified.py \
+    --config evaluation/pipeline_config.tsv \
+    --dry_run
+
+# Skip compare_strategies (run stratified eval only, no summary plots)
+python evaluation/run_stratified.py \
+    --config evaluation/pipeline_config.tsv \
+    --skip_compare
 ```
 
-### Cross-strategy comparison
+Three stratification analyses are run for every dataset:
 
-```bash
-python evaluation/compare_strategies.py \
-    --dirs \
-        "all=results/predictions/ClinVar.251103.BLBvsPLP/eval_all" \
-        "rare_1e-3=results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-3" \
-        "rare_1e-6=results/predictions/ClinVar.251103.BLBvsPLP/eval_rare_1e-6" \
-        "conserved_gerp=results/predictions/ClinVar.251103.BLBvsPLP/eval_conserved_gerp" \
-    --outdir results/predictions/ClinVar.251103.BLBvsPLP/comparison
+| Output folder | Column | Strata |
+|---|---|---|
+| `eval_strat_af/` | `gnomAD4.1_joint_AF` | ultra-rare / rare / common |
+| `eval_strat_gerp/` | `GERP++_RS` | low / medium / high conservation |
+| `eval_strat_phylop/` | `phyloP100way_vertebrate` | low / medium / high conservation |
 
-python evaluation/compare_strategies.py \
-    --strat_dir results/predictions/ClinVar.251103.BLBvsPLP/eval_strat_af \
-    --outdir    results/predictions/ClinVar.251103.BLBvsPLP/comparison_strat_af
-```
+To add or remove analyses, edit `STRAT_ANALYSES` at the top of `run_stratified.py`.
 
-Outputs: `comparison_all_methods.tsv`, `pivot_auroc.tsv`, `pivot_prauc.tsv`,
+> **Prerequisite**: `run_evaluation.py` must have been run first so that
+> `merged.tsv` and `merge_config.tsv` exist in each dataset's predictions folder.
+
+Each stratified run produces its own `eval_strat_{name}/` folder alongside
+`eval_all/`, and `compare_strategies.py` output goes into
+`comparison_strat_{name}/`. Outputs per comparison:
+`comparison_all_methods.tsv`, `pivot_auroc.tsv`, `pivot_prauc.tsv`,
 `plots/grouped_bar_auroc.png`, `plots/heatmap_auroc.png`, `plots/rank_chart_auroc.png`
+
+---
 
 ---
 

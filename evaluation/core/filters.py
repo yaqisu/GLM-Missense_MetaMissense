@@ -96,15 +96,13 @@ def apply_conservation_filter(df: pd.DataFrame, cons_col: str,
 # ── Stratify mode ──────────────────────────────────────────────────────────
 
 # Pre-built AF strata — from ultra-rare to common
+# Last stratum is AF>=1e-4 (variants seen at >= 1/10,000 frequency in gnomAD)
 AF_STRATA_DEFAULT = [
     ("not_in_gnomAD",   None,    None),     # missing AF entirely
     ("AF=0",            0.0,     0.0),      # observed but AF exactly 0
     ("AF<1e-6",         0.0,     1e-6),
     ("1e-6<=AF<1e-5",   1e-6,    1e-5),
-    ("1e-5<=AF<1e-4",   1e-5,    1e-4),
-    ("1e-4<=AF<1e-3",   1e-4,    1e-3),
-    ("1e-3<=AF<1e-2",   1e-3,    1e-2),
-    ("AF>=1e-2",        1e-2,    None),
+    ("AF>=1e-5",        1e-5,    None),     # merged: 1e-5<=AF<1e-4 + AF>=1e-4
 ]
 
 # Pre-built conservation strata (GERP++ RS)

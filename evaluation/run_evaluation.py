@@ -67,25 +67,101 @@ def resolve_parent_key(seq12k_input: str) -> str | None:
     return None
 
 
+def resolve_premerged_path(seq12k_input: str) -> str | None:
+    """
+    If seq12k_input starts with 'premerged:', return the path to the
+    pre-existing merged.tsv. Scoring and merge steps are both skipped.
+    The path may be absolute or relative (to the repo root).
+    Example:  premerged:results/predictions/ClinVar_260309only.testset/merged.tsv
+    """
+    if str(seq12k_input).startswith("premerged:"):
+        return seq12k_input.split("premerged:", 1)[1].strip()
+    return None
+
+
 def classify_score_file(path: Path) -> tuple[str, str, str]:
     """
     Given a score TSV filename, return (label, source, highlight).
 
     Naming convention:
-      finetune_*.tsv  → finetune, highlight=yes
-      zeroshot_*.tsv  → zeroshot, highlight=no
-      dbnsfp.tsv      → dbnsfp,   highlight=no
+      finetune_*.tsv      → finetune, highlight=yes
+      GLM-Missense.tsv    → finetune, highlight=yes  (canonical fine-tuned model)
+      MetaMissense.tsv    → zeroshot, highlight=no   (external ensemble, not highlighted)
+      zeroshot_*.tsv      → zeroshot, highlight=no
+      dbnsfp.tsv          → dbnsfp,   highlight=no
+
+    NOTE: The stem is used verbatim as the score column label ({stem}_score).
+    Canonical filenames: GLM-Missense.tsv  → GLM-Missense_score
+                         MetaMissense.tsv  → MetaMissense_score
+    Both match ANCHOR_COLS in core/plots.py.
     """
-    stem = path.stem
+    stem       = path.stem
+    stem_lower = stem.lower()
     if stem == "dbnsfp":
         return stem, "dbnsfp", "no"
-    elif stem.startswith("finetune_"):
-        return stem, "finetune", "yes"
+    elif stem.startswith("finetune_") or stem_lower == "glm-missense":
+        # Normalize to canonical capitalization so column name matches ANCHOR_COLS
+        label = "GLM-Missense" if stem_lower == "glm-missense" else stem
+        return label, "finetune", "yes"
+    elif stem_lower == "metamissense":
+        # Normalize capitalization; MetaMissense is an external tool, not highlighted
+        return "MetaMissense", "zeroshot", "no"
     elif stem.startswith("zeroshot_"):
         return stem, "zeroshot", "no"
     else:
         # Unknown — treat as zeroshot, not highlighted
         return stem, "zeroshot", "no"
+
+
+def build_merge_config_from_columns(merged_path: Path,
+                                     merge_config_path: Path) -> None:
+    """
+    Generate a synthetic merge_config.tsv by inspecting the column names of
+    an existing merged.tsv. Used for 'premerged:' rows where no score files
+    exist on disk.
+
+    Column detection rules (same logic as classify_score_file):
+      - Columns ending in '_score': model score cols
+        * starts with 'finetune_' or is 'GLM-Missense_score' → finetune, highlight=yes
+        * 'MetaMissense_score'                                → zeroshot, highlight=no
+        * otherwise                                          → zeroshot, highlight=no
+      - All other non-key columns are treated as dbnsfp (one synthetic row).
+    """
+
+    KEY_COLS_SET = {"variant_id", "chromosome", "position",
+                    "ref_allele", "alt_allele", "true_label"}
+
+    df = pd.read_csv(merged_path, sep="\t", nrows=0)   # header only
+    score_cols = [c for c in df.columns if c.endswith("_score")]
+
+    rows = []
+    for col in score_cols:
+        stem = col[:-len("_score")]          # strip trailing _score
+        stem_lower = stem.lower()
+        if stem.startswith("finetune_") or stem_lower == "glm-missense":
+            label     = "GLM-Missense" if stem_lower == "glm-missense" else stem
+            source    = "finetune"
+            highlight = "yes"
+        elif stem_lower == "metamissense":
+            label, source, highlight = "MetaMissense", "zeroshot", "no"
+        else:
+            label, source, highlight = stem, "zeroshot", "no"
+        rows.append({"label": label, "path": str(merged_path),
+                     "source": source, "highlight": highlight})
+
+    # One synthetic dbnsfp row so evaluate.py knows there is annotation data
+    has_dbnsfp = any(c not in KEY_COLS_SET and not c.endswith("_score")
+                     for c in df.columns)
+    if has_dbnsfp:
+        rows.append({"label": "dbnsfp", "path": str(merged_path),
+                     "source": "dbnsfp", "highlight": "no"})
+
+    merge_config_path.parent.mkdir(parents=True, exist_ok=True)
+    out = pd.DataFrame(rows, columns=["label", "path", "source", "highlight"])
+    out.to_csv(merge_config_path, sep="\t", index=False)
+    print(f"  Wrote synthetic merge_config.tsv ({len(out)} entries) → {merge_config_path}")
+    for _, r in out.iterrows():
+        print(f"    {r['highlight']:3s}  {r['source']:10s}  {r['label']}")
 
 
 def build_merge_config(score_dir: Path, merge_config_path: Path) -> None:
@@ -182,45 +258,64 @@ def main():
     print("=" * 70)
 
     for _, row in cfg.iterrows():
-        dataset_key  = row["dataset_key"]
-        seq12k_input = str(row.get("seq12k_input", "")).strip()
-        subset_ids   = str(row.get("subset_ids",   "")).strip() or None
-        parent_key   = resolve_parent_key(seq12k_input)
-        is_reuse     = parent_key is not None
+        dataset_key    = row["dataset_key"]
+        seq12k_input   = str(row.get("seq12k_input", "")).strip()
+        subset_ids_raw = str(row.get("subset_ids", "")).strip()
+        # Only treat as a subset path if it looks like a file (contains '/' or '.')
+        # Guards against gpu column values (e.g. "0", "1") bleeding in
+        subset_ids     = subset_ids_raw if ("/" in subset_ids_raw or "." in subset_ids_raw) else None
+        parent_key     = resolve_parent_key(seq12k_input)
+        premerged_path = resolve_premerged_path(seq12k_input)
+        is_reuse       = parent_key is not None
+        is_premerged   = premerged_path is not None
 
-        # Score files live in parent dir for reuse rows, own dir for source rows
-        score_dir    = predictions_dir(parent_key if is_reuse else dataset_key)
-        # merge_config and eval outputs always go in dataset's own dir
-        own_dir      = predictions_dir(dataset_key)
+        own_dir = predictions_dir(dataset_key)
         own_dir.mkdir(parents=True, exist_ok=True)
-
         merge_config_path = own_dir / "merge_config.tsv"
-        merged_path       = own_dir / "merged.tsv"
         eval_outdir       = own_dir / "eval_all"
 
         print(f"\n{'='*70}")
-        print(f"Dataset    : {dataset_key}  ({'derived/reuse' if is_reuse else 'source'})")
-        print(f"Score dir  : {score_dir}")
+        if is_premerged:
+            print(f"Dataset    : {dataset_key}  (premerged — skip scoring + merge)")
+            print(f"Merged TSV : {premerged_path}")
+        elif is_reuse:
+            score_dir = predictions_dir(parent_key)
+            print(f"Dataset    : {dataset_key}  (derived/reuse from {parent_key})")
+            print(f"Score dir  : {score_dir}")
+        else:
+            score_dir = predictions_dir(dataset_key)
+            print(f"Dataset    : {dataset_key}  (source)")
+            print(f"Score dir  : {score_dir}")
         print(f"Own dir    : {own_dir}")
         if subset_ids:
             print(f"Subset IDs : {subset_ids}")
         print(f"{'='*70}")
 
-        # Always regenerate merge_config.tsv
-        print(f"\n── Building merge_config.tsv from {score_dir}")
-        build_merge_config(score_dir, merge_config_path)
-
-        # Merge
-        if args.skip_merge:
+        if is_premerged:
+            # ── Premerged path: skip scoring and merge entirely ──────────────
+            merged_path = Path(premerged_path)
             if not merged_path.exists():
-                print(f"  WARNING: --skip_merge set but {merged_path} does not exist — running merge anyway")
-                step_merge(merge_config_path, merged_path, args.dry_run)
-            else:
-                print(f"  [skip] merge — --skip_merge set and {merged_path} exists")
+                print(f"  ERROR: premerged file not found: {merged_path}")
+                sys.exit(1)
+            print(f"\n── Building synthetic merge_config.tsv from columns of {merged_path}")
+            build_merge_config_from_columns(merged_path, merge_config_path)
         else:
-            step_merge(merge_config_path, merged_path, args.dry_run)
+            merged_path = own_dir / "merged.tsv"
+            # Always regenerate merge_config.tsv from score files on disk
+            print(f"\n── Building merge_config.tsv from {score_dir}")
+            build_merge_config(score_dir, merge_config_path)
 
-        # Evaluate
+            # Merge (skipped for premerged rows above)
+            if args.skip_merge:
+                if not merged_path.exists():
+                    print(f"  WARNING: --skip_merge set but {merged_path} does not exist — running merge anyway")
+                    step_merge(merge_config_path, merged_path, args.dry_run)
+                else:
+                    print(f"  [skip] merge — --skip_merge set and {merged_path} exists")
+            else:
+                step_merge(merge_config_path, merged_path, args.dry_run)
+
+        # Evaluate (always runs for all row types)
         step_evaluate(merged_path, merge_config_path, eval_outdir,
                       subset_ids, args.dry_run)
 

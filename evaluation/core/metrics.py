@@ -126,9 +126,15 @@ def compute_metrics(scores_raw: pd.Series, labels: pd.Series, col_name: str) -> 
 
     r = lambda x: round(x, 4) if not np.isnan(x) else np.nan
 
+    n_pos      = int(y.sum())
+    n_total    = int(mask.sum())
+    prevalence = round(n_pos / n_total, 4) if n_total > 0 else np.nan
+
     return {
         "column":       col_name,
-        "n_variants":   int(mask.sum()),
+        "n_variants":   n_total,
+        "n_positive":   n_pos,
+        "prevalence":   prevalence,
         "auroc":        r(auroc),
         "prauc":        r(prauc),
         "pauroc_fpr10": r(pauroc_10),
@@ -168,8 +174,10 @@ def build_metrics_df(our_metrics: dict, dbnsfp_metrics: list) -> pd.DataFrame:
     return metrics_df
 
 
-SUMMARY_COLS = ["column", "n_variants", "auroc", "prauc",
+SUMMARY_COLS = ["column", "n_variants", "n_positive", "prevalence", "auroc", "prauc",
                 "pauroc_fpr10", "mcc", "f1", "balanced_acc"]
+# Note: the internal key for precision-recall AUC remains "prauc" in all_metrics.tsv.
+# All display strings use "AUPRC" — see plots.py _metric_label().
 
 
 def build_summary(metrics_df: pd.DataFrame, our_col: str, anchor_cols: list, top_n: int = 20) -> pd.DataFrame:

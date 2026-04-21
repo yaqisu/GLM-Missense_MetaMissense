@@ -57,9 +57,13 @@ from core import (
     stratify_by_column, parse_custom_strata,
     AF_STRATA_DEFAULT, GERP_STRATA_DEFAULT, PHYLOP_STRATA_DEFAULT,
     CONSERVATION_COLS,
+    ANCHOR_COLS,
+    effective_anchor_cols,
     plot_roc_curves, plot_pr_curves, plot_auroc_barplot,
     plot_metrics_heatmap, plot_auroc_scatter, plot_af_distribution,
-    plot_comparison_across_strata,
+    plot_comparison_across_strata, plot_score_correlation,
+    plot_zeroshot_roc_curves, plot_zeroshot_barplot,
+    plot_glm_zeroshot_roc_curves,
 )
 
 SKIP_COLS = {"variant_id", "chromosome", "position", "ref_allele", "alt_allele",
@@ -130,9 +134,11 @@ def parse_args():
 
     # Anchor / evaluation settings
     p.add_argument('--label_col',   default='true_label')
-    p.add_argument('--anchor_cols', default='REVEL_score,AlphaMissense_score,CADD_phred,ESM1b_converted_rankscore,SIFT_converted_rankscore,Polyphen2_HVAR_score',
+    p.add_argument('--anchor_cols',
+                   default=','.join(ANCHOR_COLS),
                    help='Comma-separated cols required to be non-missing in the '
-                        'shared evaluation subset (default: REVEL_score,AlphaMissense_score,CADD_phred,ESM1b_converted_rankscore,SIFT_converted_rankscore,Polyphen2_HVAR_score)')
+                        'shared evaluation subset. Defaults to all 9 anchor predictors. '
+                        'Missing cols in the actual table are silently skipped.')
     p.add_argument('--top_n',       default=20, type=int,
                    help='Number of top dbNSFP methods to include in plots (default: 20)')
 
@@ -210,20 +216,36 @@ def run_evaluation(shared: pd.DataFrame,
     our_auroc = our_metrics['auroc']
 
     plot_roc_curves(shared, plot_cols, our_col, labels.name,
-                    plots_dir / 'roc_curves.png',
+                    plots_dir / 'roc_pr_curves.png',
                     subtitle=subtitle,
-                    bold_cols=highlighted_cols)
-    plot_pr_curves(shared, plot_cols, our_col, labels.name,
-                   plots_dir / 'pr_curves.png',
-                   subtitle=subtitle,
-                   bold_cols=highlighted_cols)
+                    bold_cols=highlighted_cols,
+                    metrics_df=metrics_df)
     plot_auroc_barplot(metrics_df, our_auroc, anchor_cols,
-                       plots_dir / 'auroc_barplot.png',
-                       our_col=our_col, highlight_cols=highlighted_cols)
+                       plots_dir / 'auroc_prauc_barplot.png',
+                       our_col=our_col, highlight_cols=highlighted_cols,
+                       labels=labels)
     plot_metrics_heatmap(metrics_df, plots_dir / 'metrics_heatmap.png',
-                         our_col=our_col, highlight_cols=highlighted_cols)
+                         our_col=our_col, highlight_cols=highlighted_cols,
+                         labels=labels)
     plot_auroc_scatter(metrics_df, our_auroc, plots_dir / 'auroc_scatter.png',
-                       our_col=our_col, highlight_cols=highlighted_cols)
+                       our_col=our_col, highlight_cols=highlighted_cols,
+                       labels=labels)
+    plot_score_correlation(shared, our_col,
+                           plots_dir / 'score_correlation.png',
+                           labels=labels)
+    # no-ops kept for compat
+    plot_zeroshot_roc_curves(shared, our_col, labels.name,
+                             plots_dir / 'zeroshot_roc_pr_curves.png',
+                             subtitle=subtitle, labels=labels,
+                             metrics_df=metrics_df)
+    plot_zeroshot_barplot(metrics_df, our_col,
+                          plots_dir / 'zeroshot_auroc_prauc_barplot.png',
+                          labels=labels)
+    # GLM-Missense vs NT2-Zeroshot dedicated comparison (#2)
+    plot_glm_zeroshot_roc_curves(shared, our_col, labels.name,
+                                 plots_dir / 'glm_vs_zeroshot_roc_pr.png',
+                                 subtitle=subtitle,
+                                 metrics_df=metrics_df)
 
     return our_metrics
 
@@ -245,24 +267,28 @@ def main():
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    anchor_cols = [c.strip() for c in args.anchor_cols.split(',')]
-    skip        = SKIP_COLS | {args.label_col}
-    # Exclude all model score columns from the "other methods" evaluation loop
-    # so they are evaluated separately with proper highlighting
-    # (evaluate_all_columns will still pick them up as score cols)
-
     # ── Load merged TSV ────────────────────────────────────────────────────
     print(f'\nLoading {args.merged}')
     merged = pd.read_csv(args.merged, sep='\t', low_memory=False)
     print(f'  {merged.shape[0]:,} variants × {merged.shape[1]} columns')
 
-    # Optional variant subset
-    if args.subset:
+    # Optional variant subset — only apply if path looks like a real file
+    if args.subset and str(args.subset).strip() not in ("", "0", "None"):
         sub  = pd.read_csv(args.subset, sep='\t', low_memory=False)
         ids  = set(sub['variant_id'].dropna().astype(str))
         n_before = len(merged)
         merged = merged[merged['variant_id'].astype(str).isin(ids)].copy().reset_index(drop=True)
         print(f'  After subset filter: {len(merged):,} / {n_before:,} variants')
+
+    # Parse anchor cols from args, then filter to those actually present in merged.
+    # Silently skips any predictor not available in this table (#10).
+    requested_anchors = [c.strip() for c in args.anchor_cols.split(',') if c.strip()]
+    anchor_cols = [c for c in requested_anchors
+                   if c in merged.columns and merged[c].notna().any()]
+    if not anchor_cols:
+        anchor_cols = effective_anchor_cols(merged)
+    print(f'  Effective anchor cols ({len(anchor_cols)}): {anchor_cols}')
+    skip        = SKIP_COLS | {args.label_col}
 
     # ── Anchor filter (shared evaluation subset) ───────────────────────────
     print(f'\n── Anchor filter: {anchor_cols} ────────────────────────────────')
