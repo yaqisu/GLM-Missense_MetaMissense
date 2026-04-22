@@ -121,6 +121,21 @@ PHYLOP_STRATA_DEFAULT = [
     ("phyloP>=6",      6.0,  None),
 ]
 
+# Gene constraint strata — LOEUF upper bound (lower = more constrained)
+LOEUF_STRATA_DEFAULT = [
+    ("LOEUF<0.35",        None,  0.35),   # most constrained
+    ("0.35<=LOEUF<0.6",   0.35,  0.6),
+    ("0.60<=LOEUF<0.85",  0.6,   0.85),
+    ("LOEUF>=0.85",       0.85,  None),   # least constrained
+]
+
+# SpliceAI strata — stratify by max delta score (higher = more splice impact)
+SPLICEAI_STRATA_DEFAULT = [
+    ("spliceAI<0.1",        None,  0.1),   # likely no splice effect
+    ("0.1<=spliceAI<0.2",   0.1,   0.2),   # low
+    ("0.2<=spliceAI<0.5",   0.2,   0.5),   # moderate
+    ("spliceAI>=0.5",       0.5,   None),   # high splice impact
+]
 
 def stratify_by_column(df: pd.DataFrame, col: str,
                        strata: list[tuple]) -> dict[str, pd.DataFrame]:

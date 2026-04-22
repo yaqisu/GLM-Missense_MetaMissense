@@ -56,6 +56,7 @@ from core import (
     apply_anchor_filter, apply_af_filter, apply_conservation_filter,
     stratify_by_column, parse_custom_strata,
     AF_STRATA_DEFAULT, GERP_STRATA_DEFAULT, PHYLOP_STRATA_DEFAULT,
+    LOEUF_STRATA_DEFAULT, SPLICEAI_STRATA_DEFAULT,
     CONSERVATION_COLS,
     ANCHOR_COLS,
     effective_anchor_cols,
@@ -73,6 +74,8 @@ BUILTIN_STRATA = {
     "builtin_af":     AF_STRATA_DEFAULT,
     "builtin_gerp":   GERP_STRATA_DEFAULT,
     "builtin_phylop": PHYLOP_STRATA_DEFAULT,
+    "builtin_loeuf":  LOEUF_STRATA_DEFAULT,
+    "builtin_spliceai": SPLICEAI_STRATA_DEFAULT,
 }
 
 
@@ -160,6 +163,7 @@ def parse_args():
                    help='[filter AF] Include variants absent from gnomAD (default: True)')
     p.add_argument('--strata',    default='builtin_af',
                    help='[stratify] builtin_af | builtin_gerp | builtin_phylop | '
+                    '   builtin_loeuf | '
                         "custom spec 'lo:hi,lo:hi,...' (default: builtin_af)")
     return p.parse_args()
 

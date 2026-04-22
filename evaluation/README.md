@@ -139,12 +139,12 @@ python evaluation/prepare_scores.py \
     --model   scoring/model/best_model.pt \
     --dbnsfp  data/dbnsfp/dbNSFP5.3.1a_grch38.gz
 
-# Dry run to preview all commands without executing
-python evaluation/prepare_scores.py \
-    --config  evaluation/pipeline_config.tsv \
-    --model   scoring/model/best_model.pt \
-    --dbnsfp  data/dbnsfp/dbNSFP5.3.1a_grch38.gz \
-    --dry_run
+# # Dry run to preview all commands without executing
+# python evaluation/prepare_scores.py \
+#     --config  evaluation/pipeline_config.tsv \
+#     --model   scoring/model/best_model.pt \
+#     --dbnsfp  data/dbnsfp/dbNSFP5.3.1a_grch38.gz \
+#     --dry_run
 ```
 
 For each source dataset row, the following are run in order:
@@ -187,18 +187,22 @@ datasets, `merge_config.tsv` is built from the parent's prediction folder and
 
 ```bash
 # Run Part 2
+# Note: Run this for the four datasets werClinVar.251103.BLBvsPLP, ClinVar.251103.BvsP, 
+#       ClinVar.260309only.BLBvsPLP, ClinVar.260309only.BvsP
 python evaluation/run_evaluation.py \
     --config evaluation/pipeline_config.tsv
 
-# Dry run
-python evaluation/run_evaluation.py \
-    --config evaluation/pipeline_config.tsv \
-    --dry_run
-
 # Skip merge (re-run evaluate only, e.g. after changing evaluate.py)
+# Note: Run this for the fifth dataset (ClinVar_260309only.testset)
+#       The merged.tsv in ClinVar_260309only.testset was generated seperately
 python evaluation/run_evaluation.py \
     --config evaluation/pipeline_config.tsv \
     --skip_merge
+
+# # Dry run
+# python evaluation/run_evaluation.py \
+#     --config evaluation/pipeline_config.tsv \
+#     --dry_run
 ```
 
 For each dataset row, `run_evaluation.py` does the following:
@@ -208,6 +212,91 @@ For each dataset row, `run_evaluation.py` does the following:
    then dbnsfp
 3. Runs `merge.py` → `merged.tsv`
 4. Runs `evaluate.py` → `eval_all/`, passing `--subset` for derived rows
+
+### Add additional metrics for stratified evaluation
+
+Annotates every `results/predictions/*/merged.tsv` with gene-level constraint
+metrics from gnomAD v4.1, enabling downstream stratification by gene constraint.
+
+**Input:** `data/loeuf/gnomad.v4.1.constraint_metrics.tsv`
+Download from the [gnomAD downloads page](https://gnomad.broadinstitute.org/downloads)
+under *Constraint → Gene constraint metrics*.
+
+**Columns added to each `merged.tsv`:**
+
+| Column | Description |
+|--------|-------------|
+| `lof.oe_ci.upper` | LOEUF — upper bound of LoF observed/expected 90% CI; primary stratification metric |
+| `lof.oe_ci.upper_bin_decile` | LOEUF decile bin (0 = most constrained) |
+| `lof.pLI` | Probability of being loss-of-function intolerant |
+| `lof.oe` | LoF observed/expected ratio |
+| `lof.obs` | Observed LoF variant count |
+| `lof.exp` | Expected LoF variant count |
+| `mis.z_score` | Missense constraint Z-score |
+| `mis.oe` | Missense observed/expected ratio |
+
+Joins on `genename` (merged.tsv) → `gene` (constraint file), restricted to
+canonical transcripts. Variants from genes absent in gnomAD constraint will
+have `NaN` for all added columns.
+
+```bash
+python evaluation/add_constraint_metrics.py \
+    --constraint data/loeuf/gnomad.v4.1.constraint_metrics.tsv \
+    --predictions_dir results/predictions
+```
+
+By default, `merged.tsv` files are edited in place. Pass `--no-overwrite` to
+write `merged.constraint.tsv` alongside the originals instead.
+
+### Add SpliceAI scores for splicing-aware stratification
+
+Annotates every `results/predictions/*/merged.tsv` with SpliceAI delta scores,
+looked up efficiently via tabix from the raw SNV VCF. This enables downstream
+stratification by predicted splicing impact — distinguishing variants that
+disrupt canonical splice sites from those that create cryptic splice sites
+within exonic sequence.
+
+**Input:** `data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz`  
+Download from the [SpliceAI-lookup](https://spliceailookup.broadinstitute.org/)
+or [Illumina basespace](https://basespace.illumina.com/s/otSPW8ewnykJ) (hg38 SNV precomputed scores).  
+The file must be bgzipped and tabix-indexed — if the index is missing, run:
+```bash
+tabix -p vcf data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz
+```
+
+**Columns added to each `merged.tsv`:**
+
+| Column | Description |
+|--------|-------------|
+| `spliceai_DS_AG` | Delta score, acceptor gain (cryptic acceptor creation) |
+| `spliceai_DS_AL` | Delta score, acceptor loss (canonical acceptor disruption) |
+| `spliceai_DS_DG` | Delta score, donor gain (cryptic donor creation) |
+| `spliceai_DS_DL` | Delta score, donor loss (canonical donor disruption) |
+| `spliceai_DS_max` | Max of the four delta scores |
+| `spliceai_gene` | Gene symbol from the SpliceAI annotation |
+
+For stratification, we distinguish two biologically distinct mechanisms rather
+than collapsing to `spliceai_DS_max`:
+
+- **Canonical disruption** (`DS_AL > 0.2` or `DS_DL > 0.2`): variant disrupts
+  an existing splice site. Splicing effect likely dominates over amino acid
+  substitution effect — these variants may confound missense predictor evaluation.
+- **Cryptic creation** (`DS_AG > 0.2` or `DS_DG > 0.2`): variant creates a
+  de novo splice site within exonic sequence. A potential silent confound —
+  variants may appear benign by amino acid logic but be pathogenic via aberrant
+  splicing. Threshold 0.2 = high sensitivity; use 0.5 for high specificity.
+
+```bash
+python evaluation/add_spliceai_scores.py \
+    --spliceai data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz \
+    --predictions_dir results/predictions
+```
+
+By default, `merged.tsv` files are edited in place. Pass `--no-overwrite` to
+write `merged.spliceai.tsv` alongside the originals instead.
+
+**Note:** requires `pysam` (`pip install pysam`). Tabix-based lookup is used
+rather than a full file load, as the raw SNV VCF is ~70 GB uncompressed.
 
 ### Stratified evaluation
 

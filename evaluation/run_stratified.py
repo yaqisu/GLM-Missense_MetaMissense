@@ -51,6 +51,16 @@ STRAT_ANALYSES = [
         "col":    "phyloP100way_vertebrate",
         "strata": "builtin_phylop",
     },
+    {
+        "name":   "strat_loeuf",
+        "col":    "lof.oe_ci.upper",
+        "strata": "builtin_loeuf",
+    },
+    {
+    "name":   "strat_spliceai",
+    "col":    "spliceai_DS_max",
+    "strata": "builtin_spliceai",
+    },
 ]
 
 

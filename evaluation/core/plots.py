@@ -102,6 +102,14 @@ STRATA_ORDER = {
         "phyloP<0", "0<=phyloP<1", "1<=phyloP<3",
         "3<=phyloP<6", "phyloP>=6",
     ],
+    "loeuf": [
+        "LOEUF<0.35", "0.35<=LOEUF<0.6",
+        "0.60<=LOEUF<0.85", "LOEUF>=0.85",
+    ],
+    "spliceai": [
+        "spliceAI<0.1", "0.1<=spliceAI<0.2",
+        "0.2<=spliceAI<0.5", "spliceAI>=0.5",
+    ],
 }
 
 
