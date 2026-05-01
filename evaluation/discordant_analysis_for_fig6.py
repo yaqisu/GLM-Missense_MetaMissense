@@ -1,35 +1,4 @@
 #!/usr/bin/env python3
-"""
-Generate one four-panel PDF figure for GLM-Missense_correct_le2 variant characterization.
-
-This script combines the main four analyses into one PDF figure with panels A-D,
-arranged as two panels per row. The original CpG panel is replaced by a radical
-amino-acid change fraction panel.
-
-Panels:
-  A) Box plot: log10(gnomAD4.1_joint_AF + pseudocount)
-  B) Box plot: LOEUF / lof.oe_ci.upper
-  C) Box plot: spliceAI maximum delta score / spliceai_DS_max
-  D) Bar plot: radical amino-acid change fraction (Grantham distance > 150 by default)
-
-Default comparison:
-  GLM-Missense_correct_le2 subset vs background = merged set excluding that subset.
-
-PDF/editability note:
-  Matplotlib is configured with pdf.fonttype=42 and ps.fonttype=42 so text remains
-  editable in Adobe Illustrator in most workflows.
-
-Example:
-  python plot_glm_missense_le2_four_panel_main_radical_aa.py \
-      --merged-set format.tsv \
-      --out-prefix glm_le2
-
-Output:
-  <out-prefix>.four_panel_main.pdf
-
-Dependencies:
-  pandas, numpy, scipy, matplotlib
-"""
 
 from __future__ import annotations
 
