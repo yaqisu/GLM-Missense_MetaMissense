@@ -1,5 +1,5 @@
 """
-figures/frozen_model_comparison.py
+evaluation/frozen_model_comparison.py
 
 Classifier Head and Embedding Strategy Comparison
          (Frozen backbone: NT-2, NT-1, Caduceus)
@@ -15,7 +15,7 @@ Font: Arial via runtime addfont — no conda env write access required.
      pdf.fonttype=42 ensures text is editable in Adobe Illustrator.
 
 Run from project root:
-    python figures/frozen_model_comparison.py
+    python evaluation/frozen_model_comparison.py
 """
 
 from pathlib import Path

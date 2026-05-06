@@ -36,10 +36,14 @@ evaluation/
 ├── prepare_exon_boundaries.py      # Parse Ensembl GTF → exon parquet (run once)
 │
 │   ── Figure analyses ──
-├── evaluate_partial_correlation.py           # Fig 4B — partial Spearman r controlling for other methods
-├── label_prediction_sets.py                  # Fig 6 prep — binary labels + correctness flags per method
-├── glmmissense_correct_analysis_for_fig6.py  # Fig 6  — GLM-Missense-correct subset analysis
-└── explained_portion_analysis_for_fig7.py    # Fig 7  — explained portion of GLM-Missense errors
+├── frozen_model_comparison.py               # Fig 2      — frozen backbone comparison (NT-2, NT-1, Caduceus)
+├── evaluate_partial_correlation.py          # Fig 4B     — partial Spearman r controlling for other methods
+├── plot_feature_importance.py               # Fig 4C     — XGBoost permutation feature importance
+├── plot_cv_results.py                       # Fig 5AB    — cross-validation AUROC and AUPRC
+├── label_prediction_sets.py                 # Fig 6 prep — binary labels + correctness flags per method
+├── glmmissense_correct_analysis_for_fig6.py # Fig 6      — GLM-Missense-correct subset analysis
+├── explained_portion_analysis_for_fig7.py   # Fig 7      — explained portion of GLM-Missense errors
+└── plot_training_curves.py                  # Fig S4     — training and validation curves
 │
 └── core/                           # Shared library (metrics, filters, plots)
     ├── metrics.py
@@ -76,11 +80,16 @@ evaluation/
         │
         ▼
 [Step 4] Figure analyses
-         ├── evaluate_partial_correlation.py              Fig 4B
-         ├── label_prediction_sets.py                     Fig 6 prep
-         ├── glmmissense_correct_analysis_for_fig6.py     Fig 6
-         └── explained_portion_analysis_for_fig7.py       Fig 7
-```
+        ├── frozen_model_comparison.py               Fig 2
+        ├── evaluate_partial_correlation.py          Fig 4B
+        ├── plot_feature_importance.py               Fig 4C
+        ├── plot_cv_results.py                       Fig 5AB
+        ├── label_prediction_sets.py                 Fig 6 prep
+        ├── glmmissense_correct_analysis_for_fig6.py Fig 6
+        ├── explained_portion_analysis_for_fig7.py   Fig 7
+        └── plot_training_curves.py                  Fig S4
+
+> Some figures are generated inline by earlier pipeline steps or assembled manually and are not listed here.
 
 ---
 
@@ -233,11 +242,57 @@ Columns added: `exon_boundary_dist`, `exon_boundary_5prime`,
 
 ## Step 4 — Figure analyses
 
-These scripts operate on the enriched `merged.tsv` files and reproduce the
-main paper figures. Step 4a must be run before 4c and 4d, as they depend on
-its output.
+These scripts reproduce the main paper figures. Steps 4e (label_prediction_sets)
+must be run before 4f and 4g, as those depend on its output. All other steps
+are standalone.
 
-### 4a. Binary prediction labels and correctness flags  *(prerequisite for Figs 6, 7)*
+### 4a. Frozen backbone comparison  *(Fig 2)*
+
+Plots training and validation AUROC curves for all frozen-backbone model
+configurations (NT-2, NT-1, Caduceus) across classifier heads and embedding
+strategies.
+
+```bash
+python evaluation/frozen_model_comparison.py
+```
+
+Reads `results/frozen_results.tsv`. Outputs `results/figures/frozen_model_comparison.pdf/png`.
+
+### 4b. Partial correlation analysis  *(Fig 4B)*
+
+Computes partial Spearman r for each predictor controlling for all others,
+quantifying the unique predictive signal each method contributes.
+
+```bash
+python evaluation/evaluate_partial_correlation.py
+```
+
+Outputs `partial_correlation_results.tsv` and `partial_correlation.pdf/png`
+alongside each `merged.tsv`.
+
+### 4c. XGBoost feature importance  *(Fig 4C)*
+
+Plots permutation feature importance (mean AUPRC decrease) for the MetaMissense
+XGBoost ensemble.
+
+```bash
+python evaluation/plot_feature_importance.py
+```
+
+Reads `results/ensemble/feature_importance.csv`. Outputs `results/figures/fig_feature_importance.pdf/png`.
+
+### 4d. Cross-validation results  *(Fig 5AB)*
+
+Plots cross-validation AUROC and AUPRC for all methods with a significance
+bracket between MetaMissense and REVEL.
+
+```bash
+python evaluation/plot_cv_results.py
+```
+
+Reads `results/ensemble/cv_results.tsv`. Outputs `results/figures/fig_cv_results.pdf/png`.
+
+### 4e. Binary prediction labels and correctness flags  *(prerequisite for Figs 6, 7)*
 
 Binarizes each predictor at its standard threshold, adds per-variant
 correctness flags, and generates 7×7 focal-method-correct-while-≤N-others-correct
@@ -253,19 +308,7 @@ python evaluation/label_prediction_sets.py \
 Outputs per dataset: `merged_prediction_labels_all.tsv` (all variants) and
 `merged_prediction_labels_all_overlap.tsv` (variants with all 7 methods scored).
 
-### 4b. Partial correlation analysis  *(Fig 4B)*
-
-Computes partial Spearman r for each predictor controlling for all others,
-quantifying the unique predictive signal each method contributes.
-
-```bash
-python evaluation/evaluate_partial_correlation.py
-```
-
-Outputs `partial_correlation_results.tsv` and `partial_correlation.pdf/png`
-alongside each `merged.tsv`.
-
-### 4c. GLM-Missense-correct subset analysis  *(Fig 6)*
+### 4f. GLM-Missense-correct subset analysis  *(Fig 6)*
 
 Characterises the GLM-Missense-correct subset: variants where GLM-Missense is
 correctly classified and at least four of the other six methods are wrong
@@ -278,7 +321,7 @@ python evaluation/glmmissense_correct_analysis_for_fig6.py \
     --outdir  results/figures/fig6
 ```
 
-### 4d. Explained portion analysis  *(Fig 7)*
+### 4g. Explained portion analysis  *(Fig 7)*
 
 Fits logistic regression models to quantify what fraction of GLM-Missense
 prediction errors can be explained by allele frequency, LOEUF, SpliceAI score,
@@ -289,6 +332,20 @@ python evaluation/explained_portion_analysis_for_fig7.py \
     --input   results/predictions/ClinVar.260309only.BLBvsPLP/merged_prediction_labels_all.tsv \
     --outdir  results/figures/fig7
 ```
+
+### 4h. Training curves  *(Fig S4)*
+
+Plots training and validation AUROC/AUPRC curves with early stopping annotation
+for the best GLM-Missense model.
+
+```bash
+python evaluation/plot_training_curves.py
+```
+
+Reads `results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv`.
+Outputs `results/figures/fig_training_curve.pdf/png`.
+
+> Some figures are generated inline by earlier pipeline steps or assembled manually and are not listed here.
 
 ---
 

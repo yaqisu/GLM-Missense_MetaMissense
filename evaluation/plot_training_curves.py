@@ -5,7 +5,7 @@ Input:  results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/train
 Output: results/figures/fig_training_curve.pdf  (and .png)
 
 Run from project root:
-    python figures/plot_training_curves.py
+    python evaluation/plot_training_curves.py
 """
 
 import pandas as pd

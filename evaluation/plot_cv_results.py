@@ -1,5 +1,5 @@
 """
-figures/plot_CV_res.py
+figures/plot_cv_results.py
 
 Cross-validation AUROC and AUPRC comparison across methods.
 Horizontal bar chart — style matches plot_feature_importance.py and
@@ -16,7 +16,7 @@ Writes: results/figures/fig_cv_results.pdf
 Significance bracket: MetaMissense vs REVEL (Welch t-test from summary stats).
 
 Run from project root:
-    python figures/plot_CV_res.py
+    python evaluation/plot_cv_results.py
 """
 
 from pathlib import Path
@@ -27,7 +27,7 @@ import pandas as pd
 from scipy import stats
 import matplotlib.pyplot as plt
 
-# ── Project root is one level up from figures/ ────────────────────────────
+# ── Project root is one level up from evaluation/ ────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "evaluation"))
 

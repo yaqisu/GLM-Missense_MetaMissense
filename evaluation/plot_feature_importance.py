@@ -2,6 +2,9 @@
 Plot XGB permutation feature importance (Mean AUPRC Decrease).
 Reads  results/ensemble/feature_importance.csv
 Writes results/figures/fig_feature_importance.pdf
+
+Run from project root:
+    python evaluation/plot_feature_importance.py
 """
 
 from pathlib import Path
@@ -9,7 +12,7 @@ import sys
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ── Project root is one level up from figures/ ────────────────────────────────
+# ── Project root is one level up from evaluation/ ────────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "evaluation"))
 
