@@ -22,7 +22,7 @@ If you want to score new variants using our pre-trained models, start with
 running any other part of this repository. At a high level:
 
 1. **GLM-Missense** — prepare input sequences, then score with the fine-tuned model
-2. **MetaMissense** *(optional)* — annotate with dbNSFP predictor scores, then run the ensemble
+2. **MetaMissense** — annotate with dbNSFP predictor scores, then run the ensemble
 
 See [`scoring/README.md`](scoring/README.md) for full instructions and download
 links for model weights.
