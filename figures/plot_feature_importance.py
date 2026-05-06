@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 # ── Project root is one level up from figures/ ────────────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "evaluation"))
+
+# Importing from core.plots triggers Arial font registration automatically
 from core.plots import col_color, display_name
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -32,7 +34,7 @@ def plot_feature_importance(
     out_path:  Path = OUT_PATH,
     our_col:   str  = OUR_COL,
     title:     str  = "XGBoost Feature Importance (5-fold CV)",
-    subtitle:  str  = "AUROC=0.983±0.001   |   AUPRC=0.950±0.003", # "CV AUROC=0.9832±0.0014   AUPRC=0.9501±0.0034"
+    subtitle:  str  = "AUROC=0.983±0.001   |   AUPRC=0.950±0.003",
 ) -> None:
 
     df = pd.read_csv(data_path)
@@ -42,21 +44,36 @@ def plot_feature_importance(
     n = len(df)
     fig, ax = plt.subplots(figsize=FIGSIZE)
 
+    x_max = df["auprc_decrease"].max()
+    xoff  = x_max * 0.04   # padding beyond error bar tip, matches partial_correlation
+
     for i, row in df.iterrows():
         raw_name = row["feature"]
         color    = col_color(raw_name, our_col)
+        val      = row["auprc_decrease"]
+        ste      = row["ste"]
         ax.barh(
             i,
-            row["auprc_decrease"],
-            xerr=row["ste"],
+            val,
+            xerr=ste,
             height=BAR_HEIGHT,
             color=color,
+            edgecolor="white",
+            linewidth=0.5,
             error_kw=dict(ecolor="black", capsize=3, lw=1.2),
         )
+        # Label to the right of error bar tip
+        ax.text(val + ste + xoff, i,
+                f"{val:.3f}",
+                va="center", ha="left",
+                fontsize=TICK_FONTSIZE - 4,
+                color="#222222")
+
+    # Extend x-axis to make room for labels
+    ax.set_xlim(0, df["auprc_decrease"].max() + df["ste"].max() + x_max * 0.25)
 
     # ── Y-axis tick labels ────────────────────────────────────────────────────
     dnames = [display_name(f) for f in df["feature"]]
-    # local override for any display_name gaps
     dnames = ["GLM-Missense" if d == "GLM-missense_score" else d for d in dnames]
     ax.set_yticks(range(n))
     ax.set_yticklabels(dnames, fontsize=TICK_FONTSIZE)
@@ -75,10 +92,9 @@ def plot_feature_importance(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     for ext in [".pdf", ".png"]:
-            fig.savefig(out_path.with_suffix(ext), bbox_inches="tight", dpi=300)
-            print(f"Saved → {out_path.with_suffix(ext)}")
+        fig.savefig(out_path.with_suffix(ext), bbox_inches="tight", dpi=300)
+        print(f"Saved → {out_path.with_suffix(ext)}")
     plt.close(fig)
-    print(f"Saved → {out_path}")
 
 
 if __name__ == "__main__":

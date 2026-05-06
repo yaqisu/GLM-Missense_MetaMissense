@@ -2,16 +2,12 @@ data/
 !data/bed
 
 results/*
-!results/figures/
-!results/figures.ipynb
-!results/results.tsv
 !results/predictions/
 results/predictions/**
 !results/predictions/*/
 !results/predictions/**/merge_config.tsv
 
-scoring/model/
-!scoring/model/model_config.json
+scoring/GLM-Missense.pt
 
 **/__pycache__/
 *.pyc

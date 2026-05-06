@@ -43,4 +43,5 @@ popEVE	results/predictions/ClinVar_260309only.testset/merged.tsv	zeroshot	no
 DANN	results/predictions/ClinVar_260309only.testset/merged.tsv	zeroshot	no
 fathmm-XF_coding	results/predictions/ClinVar_260309only.testset/merged.tsv	zeroshot	no
 MetaMissense	results/predictions/ClinVar_260309only.testset/merged.tsv	zeroshot	no
+mis.z	results/predictions/ClinVar_260309only.testset/merged.tsv	zeroshot	no
 dbnsfp	results/predictions/ClinVar_260309only.testset/merged.tsv	dbnsfp	no

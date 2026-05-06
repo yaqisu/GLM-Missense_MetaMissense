@@ -3,12 +3,37 @@ Plot train and validation AUROC curves up to the early stopping point.
 
 Input:  results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv
 Output: results/figures/fig_training_curve.pdf  (and .png)
+
+Run from project root:
+    python figures/plot_training_curves.py
 """
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import os
+
+import matplotlib
+matplotlib.use("Agg")
+
+# ── Font and PDF/SVG text settings ─────────────────────────────────────────
+import matplotlib.font_manager as _fm
+import os as _os
+
+# Register Arial from a user-writable directory — no conda env write access needed
+_user_font_dir = "../fonts/"
+if _os.path.isdir(_user_font_dir):
+    for _f in _os.listdir(_user_font_dir):
+        if _f.lower().endswith(".ttf") or _f.lower().endswith(".otf"):
+            _fm.fontManager.addfont(_os.path.join(_user_font_dir, _f))
+
+matplotlib.rcParams.update({
+    "font.family":       "sans-serif",
+    "font.sans-serif":   ["Arial", "Helvetica", "DejaVu Sans"],
+    "pdf.fonttype":      42,
+    "svg.fonttype":      "none",
+    "ps.fonttype":       42,
+})
 
 # ── Config ────────────────────────────────────────────────────────────────────
 INPUT_CSV = "results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv"
