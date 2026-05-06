@@ -9,21 +9,20 @@ parser = argparse.ArgumentParser(
 parser.add_argument('input_tsv', help='TSV with individual method scores')
 parser.add_argument('model_joblib', help='Path to saved MetaMissense model (.joblib)')
 parser.add_argument('-o', '--output', default=None,
-                    help='Output TSV path (default: input with .MetaMissense appended)')
+                    help='Output TSV path (default: <outdir>/MetaMissense.tsv '
+                         'where <outdir> is the directory of the input file)')
 args = parser.parse_args()
 
 # Column mapping: possible input names -> training feature names
 # We'll match against the model's actual expected features
 input_aliases = {
     'AlphaMissense_score': 'AlphaMissense_score',
-    'ESM1b_score': 'ESM1b_score',
-    'REVEL_score': 'REVEL_score',
-    'CADD_phred': 'CADD_phred',
-    'SIFT_score': 'SIFT_score',
+    'ESM1b_score':          'ESM1b_score',
+    'REVEL_score':          'REVEL_score',
+    'CADD_phred':           'CADD_phred',
+    'SIFT_score':           'SIFT_score',
     'Polyphen2_HVAR_score': 'Polyphen2_HVAR_score',
-    'GLM-Missense_score': 'finetune_NT2_score',
-    'GLM-missense_score': 'finetune_NT2_score',
-    'finetune_NT2_score': 'finetune_NT2_score',
+    'GLM-Missense_score':   'GLM-Missense_score',
 }
 
 # Load model bundle
@@ -101,12 +100,18 @@ if valid_mask.any():
 
 # Add predictions to dataframe
 df['MetaMissense_score'] = scores
-
+ 
+# Move MetaMissense_score to sit immediately after GLM-Missense_score
+if 'GLM-Missense_score' in df.columns:
+    glm_idx = df.columns.tolist().index('GLM-Missense_score')
+    col = df.pop('MetaMissense_score')
+    df.insert(glm_idx + 1, 'MetaMissense_score', col)
+ 
 # Output
 if args.output is None:
-    base, ext = args.input_tsv.rsplit('.', 1)
-    args.output = f'{base}.MetaMissense.{ext}'
-
+    import os
+    args.output = os.path.join(os.path.dirname(args.input_tsv), 'MetaMissense.tsv')
+ 
 df.to_csv(args.output, sep='\t', index=False)
 print(f'\nSaved {len(df)} variants to {args.output}')
 print(f'  {valid_mask.sum()} scored, {n_missing} missing')

@@ -18,9 +18,9 @@ The label column is optional — if present, AUC will also be computed.
 
 Output TSV columns:
     variant_id  chromosome  position  ref_allele  alt_allele
-    pathogenicity_score  predicted_label
+    GLM-Missense_score  predicted_label
 
-    pathogenicity_score : sigmoid probability (0-1), higher = more pathogenic
+    GLM-Missense_score : sigmoid probability (0-1), higher = more pathogenic
     predicted_label     : 0 (benign) or 1 (pathogenic) at threshold (default 0.5)
 
 Usage:
@@ -417,7 +417,7 @@ Example:
     # ---- Build output ----
     output_df = df[['variant_id', 'chromosome', 'position',
                     'ref_allele', 'alt_allele']].copy()
-    output_df['pathogenicity_score'] = scores
+    output_df['GLM-Missense_score'] = scores
     output_df['predicted_label']     = (scores >= args.threshold).astype(int)
 
     # If labels present, compute AUC
