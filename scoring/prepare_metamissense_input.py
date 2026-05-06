@@ -112,10 +112,30 @@ def merge_scores(glm_path: Path, dbnsfp_path: Path, outdir: Path) -> Path:
     dbnsfp = pd.read_csv(dbnsfp_path, sep="\t", low_memory=False)
     print(f"    {len(dbnsfp):,} variants, {dbnsfp.shape[1]} columns")
 
+    # Normalise key columns to consistent types before joining so small format
+    # differences (e.g. '1' vs 'chr1', int vs string position) don't cause
+    # silent mismatches
+    for df in (glm_slim, dbnsfp):
+        df["chromosome"] = df["chromosome"].astype(str).str.replace(r"^chr", "", regex=True).str.strip()
+        df["position"]   = df["position"].astype(int)
+        df["ref_allele"] = df["ref_allele"].astype(str).str.upper().str.strip()
+        df["alt_allele"] = df["alt_allele"].astype(str).str.upper().str.strip()
+
     # Merge: start from dbNSFP (has all variants), left-join GLM-Missense score
     merged = dbnsfp.merge(glm_slim, on=KEY_COLS, how="left")
+
+    n_total   = len(merged)
     n_matched = merged["GLM-Missense_score"].notna().sum()
-    print(f"    {n_matched:,}/{len(merged):,} variants matched GLM-Missense score")
+    n_missing = n_total - n_matched
+
+    print(f"    {n_matched:,}/{n_total:,} variants matched on chrom/pos/ref/alt")
+    if n_missing > 0:
+        print(f"    WARNING: {n_missing:,} variants have no GLM-Missense score after merge.")
+        print(f"             Possible causes: chromosome format mismatch (e.g. '1' vs 'chr1'),")
+        print(f"             position type mismatch (int vs string), or variants absent from")
+        print(f"             GLM-Missense.tsv. Check a few unmatched rows:")
+        unmatched = merged[merged["GLM-Missense_score"].isna()][KEY_COLS].head(5)
+        print(unmatched.to_string(index=False))
 
     # Move GLM-Missense_score to be the first score column (after key cols)
     score_col = merged.pop("GLM-Missense_score")
@@ -159,8 +179,9 @@ def main():
     print(f"\n{'='*60}")
     print(f"Done. Next step:")
     print(f"  python scoring/MetaMissense.py \\")
-    print(f"      {merged_out} \\")
-    print(f"      scoring/MetaMissense.joblib")
+    print(f"      --input   {merged_out} \\")
+    print(f"      --model   scoring/MetaMissense.joblib \\")
+    print(f"      --outdir  {args.outdir}")
     print(f"{'='*60}")
 
 

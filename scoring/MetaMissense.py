@@ -6,12 +6,16 @@ import sys
 
 parser = argparse.ArgumentParser(
     description='Predict MetaMissense scores using a saved ensemble model')
-parser.add_argument('input_tsv', help='TSV with individual method scores')
-parser.add_argument('model_joblib', help='Path to saved MetaMissense model (.joblib)')
-parser.add_argument('-o', '--output', default=None,
-                    help='Output TSV path (default: <outdir>/MetaMissense.tsv '
-                         'where <outdir> is the directory of the input file)')
+parser.add_argument('--input',  '-i', required=True,
+                    help='Input TSV (output of prepare_metamissense_input.py)')
+parser.add_argument('--model',  '-m', required=True,
+                    help='Path to saved MetaMissense model (.joblib)')
+parser.add_argument('--outdir', '-o', required=True,
+                    help='Output directory; MetaMissense.tsv is written here')
 args = parser.parse_args()
+
+input_tsv     = args.input
+model_joblib  = args.model
 
 # Column mapping: possible input names -> training feature names
 # We'll match against the model's actual expected features
@@ -26,7 +30,7 @@ input_aliases = {
 }
 
 # Load model bundle
-bundle = joblib.load(args.model_joblib)
+bundle = joblib.load(model_joblib)
 model = bundle['model']
 scaler = bundle['scaler']
 train_features = bundle['features']
@@ -35,8 +39,8 @@ print(f'Expected features: {train_features}')
 print(f'Best params: {bundle["best_params"]}')
 
 # Load input data
-df = pd.read_csv(args.input_tsv, sep='\t', na_values='.')
-print(f'\nLoaded {len(df)} variants from {args.input_tsv}')
+df = pd.read_csv(input_tsv, sep='\t', na_values='.')
+print(f'\nLoaded {len(df)} variants from {input_tsv}')
 
 # Build mapping: training feature name -> actual input column name
 # Uses the alias dict, plus case-insensitive fallback
@@ -100,18 +104,18 @@ if valid_mask.any():
 
 # Add predictions to dataframe
 df['MetaMissense_score'] = scores
- 
+
 # Move MetaMissense_score to sit immediately after GLM-Missense_score
 if 'GLM-Missense_score' in df.columns:
     glm_idx = df.columns.tolist().index('GLM-Missense_score')
     col = df.pop('MetaMissense_score')
     df.insert(glm_idx + 1, 'MetaMissense_score', col)
- 
+
 # Output
-if args.output is None:
-    import os
-    args.output = os.path.join(os.path.dirname(args.input_tsv), 'MetaMissense.tsv')
- 
-df.to_csv(args.output, sep='\t', index=False)
-print(f'\nSaved {len(df)} variants to {args.output}')
+import os
+output_path = os.path.join(args.outdir, 'MetaMissense.tsv')
+os.makedirs(args.outdir, exist_ok=True)
+
+df.to_csv(output_path, sep='\t', index=False)
+print(f'\nSaved {len(df)} variants to {output_path}')
 print(f'  {valid_mask.sum()} scored, {n_missing} missing')

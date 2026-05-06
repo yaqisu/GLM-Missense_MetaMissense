@@ -166,9 +166,9 @@ def main():
     print(f"\nSaved → {args.output}")
     print(f"\nNext step:")
     print(f"  python scoring/GLM-Missense.py \\")
-    print(f"      --input  {args.output} \\")
-    print(f"      --model  scoring/GLM-Missense.pt \\")
-    print(f"      --output results/scoring/GLM-Missense.tsv")
+    print(f"      --input   {args.output} \\")
+    print(f"      --model   scoring/GLM-Missense.pt \\")
+    print(f"      --outdir  {args.output.parent}")
 
 
 if __name__ == "__main__":

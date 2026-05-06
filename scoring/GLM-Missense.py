@@ -18,9 +18,9 @@ The label column is optional — if present, AUC will also be computed.
 
 Output TSV columns:
     variant_id  chromosome  position  ref_allele  alt_allele
-    GLM-Missense_score  predicted_label
+    pathogenicity_score  predicted_label
 
-    GLM-Missense_score : sigmoid probability (0-1), higher = more pathogenic
+    pathogenicity_score : sigmoid probability (0-1), higher = more pathogenic
     predicted_label     : 0 (benign) or 1 (pathogenic) at threshold (default 0.5)
 
 Usage:
@@ -352,18 +352,18 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python scoring/score_variants.py \\
-      --input  data/splits/ClinVar.251103.missense.hg38.seq12k.BvsP_validation.tsv \\
-      --model  scoring/model/best_model.pt \\
-      --output results/predictions/scores.tsv
+  python scoring/GLM-Missense.py \\
+      --input   results/scoring/my_variants.seq12k.tsv \\
+      --model   scoring/GLM-Missense.pt \\
+      --outdir  results/scoring
         """
     )
     parser.add_argument('--input',      '-i', required=True,
-                        help='Input TSV file (from preprocessing pipeline)')
+                        help='Input seq12k TSV file (from prepare_glm_input.py)')
     parser.add_argument('--model',      '-m', required=True,
-                        help='Path to best_model.pt')
-    parser.add_argument('--output',     '-o', required=True,
-                        help='Output TSV file path')
+                        help='Path to GLM-Missense.pt')
+    parser.add_argument('--outdir',     '-o', required=True,
+                        help='Output directory; GLM-Missense.tsv is written here')
     parser.add_argument('--batch_size', '-b', type=int, default=128,
                         help='Batch size for inference (default: 128). Scoring runs '
                              'under torch.no_grad() so no activations are stored — '
@@ -371,10 +371,6 @@ Example:
                              'Reduce to 32–64 if running on a smaller GPU.')
     parser.add_argument('--gpu',        '-g', type=int, default=0,
                         help='GPU id to use, -1 for CPU (default: 0)')
-    parser.add_argument('--threshold',  '-t', type=float, default=0.5,
-                        help='Threshold for predicted_label (default: 0.5)')
-    parser.add_argument('--k',          type=int, default=6,
-                        help='K-mer size for tokenization (default: 6)')
 
     args = parser.parse_args()
 
@@ -399,9 +395,9 @@ Example:
             f"Found columns: {list(df.columns)}"
         )
 
-    # ---- K-merize both sequences ----
-    ref_seqs = df['ref_sequence'].apply(lambda x: kmerize(x, args.k))
-    alt_seqs = df['alt_sequence'].apply(lambda x: kmerize(x, args.k))
+    # ---- K-merize both sequences (fixed k=6 for this model) ----
+    ref_seqs = df['ref_sequence'].apply(lambda x: kmerize(x, 6))
+    alt_seqs = df['alt_sequence'].apply(lambda x: kmerize(x, 6))
 
     # ---- Load model ----
     model, tokenizer = load_model(args.model, device)
@@ -418,27 +414,19 @@ Example:
     output_df = df[['variant_id', 'chromosome', 'position',
                     'ref_allele', 'alt_allele']].copy()
     output_df['GLM-Missense_score'] = scores
-    output_df['predicted_label']     = (scores >= args.threshold).astype(int)
 
     # If labels present, compute AUC
     if 'label' in df.columns:
         from sklearn.metrics import roc_auc_score
         auc = roc_auc_score(df['label'], scores)
         logger.info(f"AUC on labeled data: {auc:.4f}")
-        output_df['true_label'] = df['label']
 
     # ---- Save output ----
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    output_df.to_csv(args.output, sep='\t', index=False)
-    logger.info(f"Saved {len(output_df)} scored variants to {args.output}")
-
-    # ---- Summary ----
-    n_patho  = (output_df['predicted_label'] == 1).sum()
-    n_benign = (output_df['predicted_label'] == 0).sum()
-    logger.info(
-        f"Summary: {n_patho} predicted pathogenic, {n_benign} predicted benign "
-        f"(threshold={args.threshold})"
-    )
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    output_path = outdir / 'GLM-Missense.tsv'
+    output_df.to_csv(output_path, sep='\t', index=False)
+    logger.info(f"Saved {len(output_df)} scored variants to {output_path}")
 
 
 if __name__ == '__main__':
