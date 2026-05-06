@@ -56,7 +56,8 @@ from core import (
     apply_anchor_filter, apply_af_filter, apply_conservation_filter,
     stratify_by_column, parse_custom_strata,
     AF_STRATA_DEFAULT, GERP_STRATA_DEFAULT, PHYLOP_STRATA_DEFAULT,
-    LOEUF_STRATA_DEFAULT, SPLICEAI_STRATA_DEFAULT,
+    LOEUF_STRATA_DEFAULT, SPLICEAI_STRATA_DEFAULT, EXON_BOUNDARY_STRATA_DEFAULT,
+    DELTA_CAI_STRATA_DEFAULT, DELTA_MFE_STRATA_DEFAULT, TF_DISRUPTION_STRATA_DEFAULT,
     CONSERVATION_COLS,
     ANCHOR_COLS,
     effective_anchor_cols,
@@ -76,6 +77,10 @@ BUILTIN_STRATA = {
     "builtin_phylop": PHYLOP_STRATA_DEFAULT,
     "builtin_loeuf":  LOEUF_STRATA_DEFAULT,
     "builtin_spliceai": SPLICEAI_STRATA_DEFAULT,
+    "builtin_exon_boundary": EXON_BOUNDARY_STRATA_DEFAULT,
+    "builtin_delta_cai":      DELTA_CAI_STRATA_DEFAULT,
+    "builtin_delta_mfe":      DELTA_MFE_STRATA_DEFAULT,
+    "builtin_tf_disruption":  TF_DISRUPTION_STRATA_DEFAULT,
 }
 
 
@@ -224,6 +229,12 @@ def run_evaluation(shared: pd.DataFrame,
                     subtitle=subtitle,
                     bold_cols=highlighted_cols,
                     metrics_df=metrics_df)
+    plot_roc_curves(shared, plot_cols, our_col, labels.name,
+                    plots_dir / 'roc_pr_curves_legend.png',
+                    subtitle=subtitle,
+                    bold_cols=highlighted_cols,
+                    metrics_df=None, 
+                    show_legend=True)
     plot_auroc_barplot(metrics_df, our_auroc, anchor_cols,
                        plots_dir / 'auroc_prauc_barplot.png',
                        our_col=our_col, highlight_cols=highlighted_cols,

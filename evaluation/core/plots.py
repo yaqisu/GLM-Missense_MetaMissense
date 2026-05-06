@@ -29,6 +29,27 @@ from sklearn.metrics import (roc_auc_score, roc_curve,
 
 from .metrics import try_numeric, flip_if_inverse
 
+import matplotlib
+matplotlib.use("Agg")
+
+# ── Font and PDF/SVG text settings ─────────────────────────────────────────
+import matplotlib.font_manager as _fm
+import os as _os
+
+# Register Arial from a user-writable directory — no conda env write access needed
+_user_font_dir = "../fonts/"
+if _os.path.isdir(_user_font_dir):
+    for _f in _os.listdir(_user_font_dir):
+        if _f.lower().endswith(".ttf") or _f.lower().endswith(".otf"):
+            _fm.fontManager.addfont(_os.path.join(_user_font_dir, _f))
+
+matplotlib.rcParams.update({
+    "font.family":       "sans-serif",
+    "font.sans-serif":   ["Arial", "Helvetica", "DejaVu Sans"],
+    "pdf.fonttype":      42,
+    "svg.fonttype":      "none",
+    "ps.fonttype":       42,
+})
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CENTRAL METHOD REGISTRY
@@ -103,12 +124,25 @@ STRATA_ORDER = {
         "3<=phyloP<6", "phyloP>=6",
     ],
     "loeuf": [
-        "LOEUF<0.35", "0.35<=LOEUF<0.6",
-        "0.60<=LOEUF<0.85", "LOEUF>=0.85",
+        "LOEUF<0.2", "0.2<=LOEUF<0.35",
+        "0.35<=LOEUF<0.6", "0.60<=LOEUF<0.85", "LOEUF>=0.85",
     ],
     "spliceai": [
-        "spliceAI<0.1", "0.1<=spliceAI<0.2",
-        "0.2<=spliceAI<0.5", "spliceAI>=0.5",
+        "SpliceAI<0.1", "0.1<=SpliceAI<0.2",
+        "0.2<=SpliceAI<0.5", "SpliceAI>=0.5",
+    ],
+    "exon_boundary": [
+        "dist_1-3bp", "dist_4-10bp", "dist_11-30bp", "dist_>30bp",
+    ],
+    "delta_cai": [
+        "dCAI<-0.2", "-0.2<=dCAI<0.2", "dCAI>=0.2",
+    ],
+    "delta_mfe": [
+        "|dMFE|<0.5", "0.5<=|dMFE|<1.0", "1.0<=|dMFE|<2.1",
+        "2.1<=|dMFE|<3.2", "|dMFE|>=3.2",
+    ],
+    "tf_disruption": [
+        "TF_chg<1.0", "1.0<=TF_chg<3.0", "TF_chg>=3.0",
     ],
 }
 
@@ -289,22 +323,36 @@ def _draw_bar_inset(fig, ax, metrics_df: pd.DataFrame, our_col: str,
 def plot_roc_curves(df: pd.DataFrame, top_cols: list, our_col: str,
                     label_col: str, out_path: Path, n: int = 20,
                     subtitle: str = "", bold_cols: list = None,
-                    metrics_df: pd.DataFrame = None) -> None:
-    """ROC and AUPRC curves side by side for anchor methods only.
-    Embeds AUROC/AUPRC barplots as insets replacing the legends.
-    Pass metrics_df (from build_metrics_df) to enable the insets."""
-    labels  = df[label_col]
-    avail   = list(df.columns)
-    methods = _anchor_methods(our_col, available_cols=avail)
+                    metrics_df: pd.DataFrame = None,
+                    show_legend: bool = False) -> None:
+    """
+    ROC and PR curves side by side for anchor methods only.
+ 
+    Two modes controlled by show_legend:
+      show_legend=False (default): embeds AUROC/AUPRC inset barplots.
+          Pass metrics_df to enable the insets. Saves to out_path.
+      show_legend=True: replaces insets with a ranked legend inside each panel
+          (ROC: lower right, PR: lower left), ranked by metric value descending.
+          Saves to out_path with '_legend' inserted before the suffix,
+          e.g. roc_pr_curves.png → roc_pr_curves_legend.png.
+ 
+    figsize and font sizes match plot_glm_zeroshot_roc_curves exactly.
+    No diagonal random-baseline line is drawn.
+    Font: Arial (via rcParams set at module load). pdf.fonttype=42 ensures
+    editable text when opening the .pdf in Adobe Illustrator.
+    """
+    labels     = df[label_col]
+    avail      = list(df.columns)
+    methods    = _anchor_methods(our_col, available_cols=avail)
     class_info = _class_subtitle(labels)
-
+ 
     fig, (ax_roc, ax_pr) = plt.subplots(1, 2, figsize=(8, 4))
-
+ 
     for col in methods:
         if col not in df.columns:
             continue
         color  = col_color(col, our_col)
-        lw     = 2 if col in HIGHLIGHT_COLS else 1.5
+        lw     = 2.5 if col in HIGHLIGHT_COLS else 1.8
         zorder = 5 if col in HIGHLIGHT_COLS else 2
         s      = try_numeric(df[col])
         mask   = s.notna()
@@ -315,34 +363,50 @@ def plot_roc_curves(df: pd.DataFrame, top_cols: list, our_col: str,
         try:
             fpr, tpr, _ = roc_curve(labels[mask], s_f)
             auroc = roc_auc_score(labels[mask], s_f)
-            ax_roc.plot(fpr, tpr, color=color, lw=lw, alpha=0.7,
+            ax_roc.plot(fpr, tpr, color=color, lw=lw, alpha=0.9,
                         zorder=zorder, label=f"{dname} ({auroc:.3f})")
             rec, prec, _ = precision_recall_curve(labels[mask], s_f)
             auprc = average_precision_score(labels[mask], s_f)
-            ax_pr.plot(rec, prec, color=color, lw=lw, alpha=0.7,
+            ax_pr.plot(rec, prec, color=color, lw=lw, alpha=0.9,
                        zorder=zorder, label=f"{dname} ({auprc:.3f})")
         except Exception:
             pass
-
-    # ax_roc.plot([0, 1], [0, 1], color="black", ls="--", lw=0.8)
+ 
     ax_roc.set_xlabel("False Positive Rate", fontsize=11)
     ax_roc.set_ylabel("True Positive Rate", fontsize=11)
     _add_class_info(ax_roc, "ROC Curves", subtitle, class_info)
-
+ 
     ax_pr.set_xlabel("Recall", fontsize=11)
     ax_pr.set_ylabel("Precision", fontsize=11)
     _add_class_info(ax_pr, "PR Curves", subtitle, class_info)
-
-    if metrics_df is not None:
-        _draw_bar_inset(fig, ax_roc, metrics_df, our_col, "auroc", "AUROC",
-                        inset_bounds=[0.67, 0.03, 0.22, 0.48])
-        _draw_bar_inset(fig, ax_pr, metrics_df, our_col, "prauc", "AUPRC",
-                        inset_bounds=[0.30, 0.03, 0.22, 0.48])
-
+ 
+    def _sort_legend(ax, loc):
+        handles, leg_labels = ax.get_legend_handles_labels()
+        if not handles:
+            return
+        pairs = sorted(zip(handles, leg_labels),
+                       key=lambda x: float(x[1].split("(")[1].rstrip(")")),
+                       reverse=True)
+        hs, ls = zip(*pairs)
+        ax.legend(hs, ls, fontsize=10, loc=loc,
+                  framealpha=0.9, edgecolor="#cccccc")
+ 
+    if show_legend:
+        _sort_legend(ax_roc, "lower right")
+        _sort_legend(ax_pr,  "lower left")
+        out_path    = Path(out_path)
+        legend_path = out_path.with_stem(out_path.stem + "_legend")
+    else:
+        if metrics_df is not None:
+            _draw_bar_inset(fig, ax_roc, metrics_df, our_col, "auroc", "AUROC",
+                            inset_bounds=[0.67, 0.03, 0.22, 0.48])
+            _draw_bar_inset(fig, ax_pr, metrics_df, our_col, "prauc", "AUPRC",
+                            inset_bounds=[0.30, 0.03, 0.22, 0.48])
+        legend_path = out_path
+ 
     fig.tight_layout()
-    _savefig(fig, out_path)
+    _savefig(fig, legend_path)
     plt.close(fig)
-
 
 def plot_pr_curves(df, top_cols, our_col, label_col, out_path, n=20,
                    subtitle="", bold_cols=None) -> None:

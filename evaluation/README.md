@@ -1,44 +1,11 @@
-# Evaluation Pipeline
+# Evaluation
 
-Modular pipeline for evaluating fine-tuned and zero-shot genomic language models
-against dbNSFP baseline methods on ClinVar variants.
+This directory contains the full pipeline for reproducing the evaluation results
+in the paper. The pipeline takes GLM-Missense scores as input, annotates variants
+with additional predictors and genomic features, and produces all figures and
+tables reported in the paper.
 
-Four datasets are evaluated:
-
-| Dataset key | Variant classes | Chromosomes | Fine-tuned scores? | Scores from |
-|---|---|---|---|---|
-| `ClinVar.251103.BLBvsPLP` | PLP vs BLB | Val split only | Yes | own scoring run |
-| `ClinVar.251103.BvsP` | P vs B | Val split only | Yes | reuses `251103.BLBvsPLP` scores |
-| `ClinVar.260309only.BLBvsPLP` | PLP vs BLB | All chroms | Yes | own scoring run |
-| `ClinVar.260309only.BvsP` | P vs B | All chroms | Yes | reuses `260309only.BLBvsPLP` scores |
-
-> **Why BvsP datasets reuse scores**: `ClinVar.251103.BvsP` is a strict subset
-> of `ClinVar.251103.BLBvsPLP`, and `ClinVar.260309only.BvsP` is a strict subset
-> of `ClinVar.260309only.BLBvsPLP`. Rather than re-running all scoring jobs,
-> the BvsP datasets point at the parent's prediction files and filter to P+B
-> variants at evaluation time via `evaluate.py --subset`.
-
----
-
-## Pipeline overview
-
-The pipeline is split into two parts, each driven by a single config file
-(`pipeline_config.tsv`):
-
-```
-Part 1 — prepare_scores.py     Part 2 — run_evaluation.py
-─────────────────────────────  ─────────────────────────────────────
-For each SOURCE dataset:        For every dataset (source + derived):
-  fine-tuned scoring              auto-generate merge_config.tsv
-  zero-shot scoring (5 models)    merge.py → merged.tsv
-  dbNSFP annotation               evaluate.py → eval_all/
-
-For each DERIVED (reuse:) dataset:
-  generate BvsP_ids.tsv
-  (all scoring skipped)
-```
-
-Scoring steps in Part 1 would be skipped if the output file already exists.
+> Run all commands from the **repo root**.
 
 ---
 
@@ -46,351 +13,304 @@ Scoring steps in Part 1 would be skipped if the output file already exists.
 
 ```
 evaluation/
-├── core/                       # Shared library (imported by pipeline scripts)
-│   ├── metrics.py              #   AUROC, PRAUC, MCC, …
-│   ├── filters.py              #   AF / conservation filtering & stratification
-│   ├── plots.py                #   all plotting functions
-│   └── __init__.py
 │
-├── prepare_scores.py           # Part 1 — run all scoring for all datasets
-├── run_evaluation.py           # Part 2 — merge + evaluate all datasets
-├── pipeline_config.tsv         # Single config driving both scripts
+│   ── Orchestration ──
+├── pipeline_config.tsv             # Single config driving prepare_scores + run_evaluation
+├── prepare_scores.py               # Step 1 — zero-shot scoring + dbNSFP annotation
+├── run_evaluation.py               # Step 2 — merge all scores + baseline evaluation
 │
-├── zeroshot_nt.py              # Zero-shot NT-1/NT-2 scoring (6-mer tokenization)
-├── zeroshot_caduceus.py        # Zero-shot Caduceus-PS/Ph scoring (single-char tokenization)
-├── extract_subset_ids.py       # Generate BvsP_ids.tsv for subset datasets
-├── annotate_dbnsfp.py          # Annotate variants with dbNSFP via tabix
-├── merge.py                    # Merge all model predictions + dbNSFP into one wide TSV
-├── evaluate.py                 # Full / filtered / stratified evaluation
-└── compare_strategies.py       # Cross-strategy comparison plots & tables
+│   ── Core pipeline scripts ──
+├── merge.py                        # Merge all score files into one wide TSV
+├── evaluate.py                     # AUROC / AUPRC evaluation (full / filter / stratify modes)
+├── extract_subset_ids.py           # Extract variant IDs for a label subset (e.g. P+B only)
+│
+│   ── Zero-shot scoring ──
+├── zeroshot_nt.py                  # Zero-shot NT-1 / NT-2 scoring (6-mer tokenization)
+├── zeroshot_caduceus.py            # Zero-shot Caduceus-PS / Ph scoring (single-char tokenization)
+│
+│   ── Annotation enrichment ──
+├── annotate_spliceai.py            # Add SpliceAI delta scores
+├── annotate_constraint.py          # Add gnomAD v4.1 LOEUF / pLI per gene
+├── annotate_grantham.py            # Add Grantham distance + radical AA change flag (hardcoded)
+├── annotate_exon_boundaries.py     # Add distance to nearest exon boundary
+├── prepare_exon_boundaries.py      # Parse Ensembl GTF → exon parquet (run once)
+│
+│   ── Figure analyses ──
+├── evaluate_partial_correlation.py           # Fig 4B — partial Spearman r controlling for other methods
+├── label_prediction_sets.py                  # Fig 6 prep — binary labels + correctness flags per method
+├── glmmissense_correct_analysis_for_fig6.py  # Fig 6  — GLM-Missense-correct subset analysis
+└── explained_portion_analysis_for_fig7.py    # Fig 7  — explained portion of GLM-Missense errors
+│
+└── core/                           # Shared library (metrics, filters, plots)
+    ├── metrics.py
+    ├── filters.py
+    ├── plots.py
+    └── __init__.py
 ```
 
 ---
 
-## Results directory layout
+## Pipeline overview
 
 ```
+[scoring/] GLM-Missense.tsv
+        │
+        ▼
+[Step 1] prepare_scores.py
+         ├── scoring/GLM-Missense.py       fine-tuned scoring (called externally)
+         ├── zeroshot_nt.py × 3            NT-2 seq12k, NT-2 seq6k, NT-1 seq6k
+         ├── zeroshot_caduceus.py × 2      Caduceus-PS seq30k, Caduceus-Ph seq30k
+         └── scoring/annotate_dbnsfp.py    all dbNSFP columns (called from scoring/)
+        │
+        ▼
+[Step 2] run_evaluation.py
+         ├── merge.py                      merge all score files → merged.tsv
+         └── evaluate.py                   AUROC / AUPRC → eval_all/
+        │
+        ▼
+[Step 3] Annotation enrichment             (all edit merged.tsv in place)
+         ├── annotate_spliceai.py          SpliceAI delta scores
+         ├── annotate_constraint.py        LOEUF / pLI from gnomAD v4.1
+         ├── annotate_grantham.py          Grantham distance (hardcoded)
+         └── annotate_exon_boundaries.py   distance to nearest exon boundary
+        │
+        ▼
+[Step 4] Figure analyses
+         ├── evaluate_partial_correlation.py              Fig 4B
+         ├── label_prediction_sets.py                     Fig 6 prep
+         ├── glmmissense_correct_analysis_for_fig6.py     Fig 6
+         └── explained_portion_analysis_for_fig7.py       Fig 7
+```
+
+---
+
+## Datasets
+
+Four ClinVar datasets are evaluated:
+
+| Dataset key | Variant classes | Split |
+|---|---|---|
+| `ClinVar.251103.BLBvsPLP` | Pathogenic/LP vs Benign/LB | Validation chromosomes only |
+| `ClinVar.251103.BvsP` | Pathogenic vs Benign (strict) | Validation chromosomes only |
+| `ClinVar.260309only.BLBvsPLP` | Pathogenic/LP vs Benign/LB | All chromosomes |
+| `ClinVar.260309only.BvsP` | Pathogenic vs Benign (strict) | All chromosomes |
+
+The `BvsP` datasets are strict subsets of their parent `BLBvsPLP` datasets and
+reuse the same score files — no re-scoring is needed. Filtering to P+B variants
+happens at evaluation time via `--subset`.
+
+---
+
+## Step 1 — Prepare scores
+
+Runs zero-shot scoring and dbNSFP annotation for all source datasets. All steps
+skip gracefully if output already exists — safe to rerun after interruption.
+
+```bash
+python evaluation/prepare_scores.py \
+    --config  evaluation/pipeline_config.tsv \
+    --model   scoring/GLM-Missense.pt \
+    --dbnsfp  data/dbnsfp/dbNSFP5.3.1a_grch38.gz
+```
+
+For each source dataset this runs, in order: GLM-Missense scoring, five
+zero-shot models (NT-2 seq12k, NT-2 seq6k, NT-1 seq6k, Caduceus-PS seq30k,
+Caduceus-Ph seq30k), and dbNSFP annotation via `scoring/annotate_dbnsfp.py`.
+For derived (`reuse:`) rows, only the subset ID file is generated.
+
+Add `--dry_run` to preview all commands without executing.
+
+> **Note on dbNSFP:** `annotate_dbnsfp.py` lives in `scoring/` and is called
+> from there. If you have already run it for the MetaMissense pipeline on the
+> same variants, you can copy the resulting `dbnsfp.tsv` into
+> `results/predictions/{dataset}/` and the step will be skipped automatically.
+
+---
+
+## Step 2 — Merge and evaluate
+
+Merges all score files and runs the baseline AUROC / AUPRC evaluation for every
+dataset in `pipeline_config.tsv`.
+
+```bash
+python evaluation/run_evaluation.py \
+    --config evaluation/pipeline_config.tsv
+```
+
+For each dataset this auto-generates `merge_config.tsv` from whatever `.tsv`
+files are present in the predictions directory, runs `merge.py` to produce
+`merged.tsv`, then runs `evaluate.py` to produce AUROC / AUPRC tables and
+plots under `eval_all/`. Add `--skip_merge` to re-run evaluation only
+(useful when `merged.tsv` already exists). Add `--dry_run` to preview.
+
+> `merge_config.tsv` is always regenerated — do not hand-edit it. To include
+> or exclude a model, add or remove its score file from the predictions directory.
+
+**Results layout:**
+```
 results/predictions/
-│
-├── ClinVar.251103.BLBvsPLP/        ← source dataset (scores live here)
-│   ├── finetune_NT2.tsv
+├── ClinVar.260309only.BLBvsPLP/
+│   ├── GLM-Missense.tsv
 │   ├── zeroshot_NT2_seq12k.tsv
-│   ├── zeroshot_NT2_seq6k.tsv
-│   ├── zeroshot_NT1_seq6k.tsv
 │   ├── zeroshot_CaduceusPS_seq30k.tsv
-│   ├── zeroshot_CaduceusPh_seq30k.tsv
 │   ├── dbnsfp.tsv
-│   ├── merge_config.tsv            ← auto-generated by run_evaluation.py
+│   ├── merge_config.tsv          ← auto-generated
 │   ├── merged.tsv
 │   └── eval_all/
 │
-├── ClinVar.251103.BvsP/            ← derived dataset (no score files here)
-│   ├── merge_config.tsv            ← points at BLBvsPLP score files above
-│   ├── merged.tsv
-│   └── eval_all/                   ← evaluated with --subset BvsP_ids.tsv
-│
-├── ClinVar.260309only.BLBvsPLP/    ← source dataset
-│   └── (same layout as above)
-│
-└── ClinVar.260309only.BvsP/        ← derived dataset
-    └── (same layout as above)
+└── ClinVar.260309only.BvsP/
+    ├── merge_config.tsv          ← points at BLBvsPLP score files
+    ├── merged.tsv
+    └── eval_all/                 ← evaluated with --subset BvsP_ids.tsv
 ```
-
-`merge_config.tsv` is **always regenerated** by `run_evaluation.py` — never
-edit it by hand, as changes will be overwritten. To control which models appear,
-add or remove score files from the predictions directory.
 
 ---
 
-## pipeline_config.tsv
+## Step 3 — Annotation enrichment
 
-The single config file driving both scripts. Each row is one dataset.
+These four scripts add annotation columns to every `merged.tsv` in place. Run
+them in any order after Step 2. All are idempotent — re-running drops and
+re-adds their columns.
 
-| Column | Description |
-|---|---|
-| `dataset_key` | Unique name; determines output folder under `results/predictions/` |
-| `seq12k_input` | Path to seq12k input TSV, or `reuse:{parent_key}` for derived datasets |
-| `seq6k_input` | Path to seq6k input TSV (used for NT zero-shot) |
-| `seq30k_input` | Path to seq30k input TSV (used for Caduceus zero-shot) |
-| `finetune_score` | Output path for fine-tuned model scores (shared between parent and derived) |
-| `subset_ids` | Path to `BvsP_ids.tsv` for derived datasets; empty for source datasets |
-| `gpu` | GPU ID used for all scoring on this dataset |
-
-Rows with `seq12k_input` starting with `reuse:` are **derived** datasets —
-all scoring steps are skipped; only `BvsP_ids.tsv` generation and evaluation run.
-
----
-
-## Part 1 — prepare_scores.py
-
-Runs all scoring for source datasets and generates subset ID files for derived
-datasets. Safe to rerun — all steps skip if output already exists.
+### 3a. SpliceAI scores
 
 ```bash
-# One-time dbNSFP download (if not already present)
-curl --http1.1 -C - -o data/dbnsfp/dbNSFP5.3.1a_grch38.gz \
-    https://dist.genos.us/academic/yourcode/dbNSFP5.3.1a_grch38.gz
-curl --http1.1 -C - -o data/dbnsfp/dbNSFP5.3.1a_grch38.gz.tbi \
-    https://dist.genos.us/academic/yourcode/dbNSFP5.3.1a_grch38.gz.tbi
-
-# Run Part 1
-python evaluation/prepare_scores.py \
-    --config  evaluation/pipeline_config.tsv \
-    --model   scoring/model/best_model.pt \
-    --dbnsfp  data/dbnsfp/dbNSFP5.3.1a_grch38.gz
-
-# # Dry run to preview all commands without executing
-# python evaluation/prepare_scores.py \
-#     --config  evaluation/pipeline_config.tsv \
-#     --model   scoring/model/best_model.pt \
-#     --dbnsfp  data/dbnsfp/dbNSFP5.3.1a_grch38.gz \
-#     --dry_run
-```
-
-For each source dataset row, the following are run in order:
-
-1. `scoring/score_variants.py` — fine-tuned NT2 model (Siamese ref-alt contrast)
-2. `zeroshot_nt.py` × 3 — NT-2 seq12k, NT-2 seq6k, NT-1 seq6k
-3. `zeroshot_caduceus.py` × 2 — Caduceus-PS seq30k, Caduceus-Ph seq30k
-4. `annotate_dbnsfp.py` — dbNSFP annotations (seq-length agnostic, uses seq12k input)
-
-For each derived (`reuse:`) row:
-
-5. `extract_subset_ids.py` — generates `BvsP_ids.tsv` from per-class sequence files
-
-### Zero-shot scoring notes
-
-- **NT models** use 6-mer tokenization; `max_length` is read automatically from
-  the tokenizer (`model_max_length`): NT-1 = 1000 tokens, NT-2 = 2048 tokens.
-- **Caduceus models** use single-character tokenization with no attention mask.
-  Requires `mamba-ssm`: `pip install mamba-ssm --no-build-isolation`
-- Both zero-shot scripts write scores every 100 variants and resume automatically
-  if interrupted — just rerun the same command.
-
-**Zero-shot output columns:**
-
-| Column | Description |
-|---|---|
-| `variant_id`, `chromosome`, `position`, `ref_allele`, `alt_allele` | Variant identifiers |
-| `pathogenicity_score` | `sigmoid(-(log P(alt│ctx) - log P(ref│ctx)))`, 0–1, higher = more pathogenic |
-| `predicted_label` | Binary call at default threshold 0.5 |
-| `true_label` | From input `label` column if present |
-| `log_p_alt`, `log_p_ref`, `log_likelihood_ratio` | Intermediate values, ignored by eval |
-
----
-
-## Part 2 — run_evaluation.py
-
-Runs merge and evaluate for every dataset in `pipeline_config.tsv`. For derived
-datasets, `merge_config.tsv` is built from the parent's prediction folder and
-`evaluate.py` is called with `--subset` automatically.
-
-```bash
-# Run Part 2
-# Note: Run this for the four datasets werClinVar.251103.BLBvsPLP, ClinVar.251103.BvsP, 
-#       ClinVar.260309only.BLBvsPLP, ClinVar.260309only.BvsP
-python evaluation/run_evaluation.py \
-    --config evaluation/pipeline_config.tsv
-
-# Skip merge (re-run evaluate only, e.g. after changing evaluate.py)
-# Note: Run this for the fifth dataset (ClinVar_260309only.testset)
-#       The merged.tsv in ClinVar_260309only.testset was generated seperately
-python evaluation/run_evaluation.py \
-    --config evaluation/pipeline_config.tsv \
-    --skip_merge
-
-# # Dry run
-# python evaluation/run_evaluation.py \
-#     --config evaluation/pipeline_config.tsv \
-#     --dry_run
-```
-
-For each dataset row, `run_evaluation.py` does the following:
-
-1. Scans the predictions folder (parent folder for derived rows) for `.tsv` files
-2. Regenerates `merge_config.tsv` — finetune first (highlight=yes), then zeroshot,
-   then dbnsfp
-3. Runs `merge.py` → `merged.tsv`
-4. Runs `evaluate.py` → `eval_all/`, passing `--subset` for derived rows
-
-### Add additional metrics for stratified evaluation
-
-Annotates every `results/predictions/*/merged.tsv` with gene-level constraint
-metrics from gnomAD v4.1, enabling downstream stratification by gene constraint.
-
-**Input:** `data/loeuf/gnomad.v4.1.constraint_metrics.tsv`
-Download from the [gnomAD downloads page](https://gnomad.broadinstitute.org/downloads)
-under *Constraint → Gene constraint metrics*.
-
-**Columns added to each `merged.tsv`:**
-
-| Column | Description |
-|--------|-------------|
-| `lof.oe_ci.upper` | LOEUF — upper bound of LoF observed/expected 90% CI; primary stratification metric |
-| `lof.oe_ci.upper_bin_decile` | LOEUF decile bin (0 = most constrained) |
-| `lof.pLI` | Probability of being loss-of-function intolerant |
-| `lof.oe` | LoF observed/expected ratio |
-| `lof.obs` | Observed LoF variant count |
-| `lof.exp` | Expected LoF variant count |
-| `mis.z_score` | Missense constraint Z-score |
-| `mis.oe` | Missense observed/expected ratio |
-
-Joins on `genename` (merged.tsv) → `gene` (constraint file), restricted to
-canonical transcripts. Variants from genes absent in gnomAD constraint will
-have `NaN` for all added columns.
-
-```bash
-python evaluation/add_constraint_metrics.py \
-    --constraint data/loeuf/gnomad.v4.1.constraint_metrics.tsv \
-    --predictions_dir results/predictions
-```
-
-By default, `merged.tsv` files are edited in place. Pass `--no-overwrite` to
-write `merged.constraint.tsv` alongside the originals instead.
-
-### Add SpliceAI scores for splicing-aware stratification
-
-Annotates every `results/predictions/*/merged.tsv` with SpliceAI delta scores,
-looked up efficiently via tabix from the raw SNV VCF. This enables downstream
-stratification by predicted splicing impact — distinguishing variants that
-disrupt canonical splice sites from those that create cryptic splice sites
-within exonic sequence.
-
-**Input:** `data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz`  
-Download from the [SpliceAI-lookup](https://spliceailookup.broadinstitute.org/)
-or [Illumina basespace](https://basespace.illumina.com/s/otSPW8ewnykJ) (hg38 SNV precomputed scores).  
-The file must be bgzipped and tabix-indexed — if the index is missing, run:
-```bash
-tabix -p vcf data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz
-```
-
-**Columns added to each `merged.tsv`:**
-
-| Column | Description |
-|--------|-------------|
-| `spliceai_DS_AG` | Delta score, acceptor gain (cryptic acceptor creation) |
-| `spliceai_DS_AL` | Delta score, acceptor loss (canonical acceptor disruption) |
-| `spliceai_DS_DG` | Delta score, donor gain (cryptic donor creation) |
-| `spliceai_DS_DL` | Delta score, donor loss (canonical donor disruption) |
-| `spliceai_DS_max` | Max of the four delta scores |
-| `spliceai_gene` | Gene symbol from the SpliceAI annotation |
-
-For stratification, we distinguish two biologically distinct mechanisms rather
-than collapsing to `spliceai_DS_max`:
-
-- **Canonical disruption** (`DS_AL > 0.2` or `DS_DL > 0.2`): variant disrupts
-  an existing splice site. Splicing effect likely dominates over amino acid
-  substitution effect — these variants may confound missense predictor evaluation.
-- **Cryptic creation** (`DS_AG > 0.2` or `DS_DG > 0.2`): variant creates a
-  de novo splice site within exonic sequence. A potential silent confound —
-  variants may appear benign by amino acid logic but be pathogenic via aberrant
-  splicing. Threshold 0.2 = high sensitivity; use 0.5 for high specificity.
-
-```bash
-python evaluation/add_spliceai_scores.py \
+python evaluation/annotate_spliceai.py \
     --spliceai data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz \
     --predictions_dir results/predictions
 ```
 
-By default, `merged.tsv` files are edited in place. Pass `--no-overwrite` to
-write `merged.spliceai.tsv` alongside the originals instead.
+Requires the raw SNV VCF bgzipped and tabix-indexed (`tabix -p vcf ...`).
+Columns added: `spliceai_DS_AG`, `spliceai_DS_AL`, `spliceai_DS_DG`,
+`spliceai_DS_DL`, `spliceai_DS_max`, `spliceai_gene`.
 
-**Note:** requires `pysam` (`pip install pysam`). Tabix-based lookup is used
-rather than a full file load, as the raw SNV VCF is ~70 GB uncompressed.
-
-### Stratified evaluation
-
-Runs all three stratification analyses across all four datasets in one command.
-Automatically passes `--subset` for derived (BvsP) datasets.
+### 3b. gnomAD constraint (LOEUF / pLI)
 
 ```bash
-python evaluation/run_stratified.py \
-    --config evaluation/pipeline_config.tsv
-
-# Dry run — preview all commands without executing
-python evaluation/run_stratified.py \
-    --config evaluation/pipeline_config.tsv \
-    --dry_run
-
-# Skip compare_strategies (run stratified eval only, no summary plots)
-python evaluation/run_stratified.py \
-    --config evaluation/pipeline_config.tsv \
-    --skip_compare
+python evaluation/annotate_constraint.py \
+    --constraint    data/loeuf/gnomad.v4.1.constraint_metrics.tsv \
+    --predictions_dir results/predictions
 ```
 
-Three stratification analyses are run for every dataset:
+Joins on gene name (canonical transcripts only). Columns added: `lof.oe_ci.upper`
+(LOEUF), `lof.pLI`, `lof.oe`, `lof.obs`, `lof.exp`, `mis.z_score`, `mis.oe`,
+`lof.oe_ci.upper_bin_decile`.
 
-| Output folder | Column | Strata |
+### 3c. Grantham distance
+
+No external data required — values are hardcoded from Grantham (1974).
+
+```bash
+python evaluation/annotate_grantham.py \
+    --predictions_dir results/predictions
+```
+
+Requires `aaref` and `aaalt` columns (provided by dbNSFP). Columns added:
+`grantham_distance` (0–215 scale), `is_radical_aa_change` (True if distance > 150).
+
+### 3d. Exon boundary distance
+
+First, prepare the exon boundary parquet from an Ensembl GTF (one-time, ~60 sec):
+
+```bash
+python evaluation/prepare_exon_boundaries.py \
+    --gtf    data/annotation/Homo_sapiens.GRCh38.113.gtf.gz \
+    --output data/annotation/exons_GRCh38.113.parquet
+```
+
+Then annotate:
+
+```bash
+python evaluation/annotate_exon_boundaries.py \
+    --exons data/annotation/exons_GRCh38.113.parquet \
+    --predictions_dir results/predictions
+```
+
+Columns added: `exon_boundary_dist`, `exon_boundary_5prime`,
+`exon_boundary_3prime`, `near_exon_boundary`, `exon_boundary_bin`.
+
+---
+
+## Step 4 — Figure analyses
+
+These scripts operate on the enriched `merged.tsv` files and reproduce the
+main paper figures. Step 4a must be run before 4c and 4d, as they depend on
+its output.
+
+### 4a. Binary prediction labels and correctness flags  *(prerequisite for Figs 6, 7)*
+
+Binarizes each predictor at its standard threshold, adds per-variant
+correctness flags, and generates 7×7 focal-method-correct-while-≤N-others-correct
+indicators. The key column used downstream is `GLM-Missense_correct_le{N}`,
+which flags variants where GLM-Missense is correct and at most N of the other
+six methods are also correct.
+
+```bash
+python evaluation/label_prediction_sets.py \
+    --predictions_dir results/predictions
+```
+
+Outputs per dataset: `merged_prediction_labels_all.tsv` (all variants) and
+`merged_prediction_labels_all_overlap.tsv` (variants with all 7 methods scored).
+
+### 4b. Partial correlation analysis  *(Fig 4B)*
+
+Computes partial Spearman r for each predictor controlling for all others,
+quantifying the unique predictive signal each method contributes.
+
+```bash
+python evaluation/evaluate_partial_correlation.py
+```
+
+Outputs `partial_correlation_results.tsv` and `partial_correlation.pdf/png`
+alongside each `merged.tsv`.
+
+### 4c. GLM-Missense-correct subset analysis  *(Fig 6)*
+
+Characterises the GLM-Missense-correct subset: variants where GLM-Missense is
+correctly classified and at least four of the other six methods are wrong
+(`GLM-Missense_correct_le2`). Examines mutation spectrum, SpliceAI scores,
+and other genomic features of this subset relative to all other variants.
+
+```bash
+python evaluation/glmmissense_correct_analysis_for_fig6.py \
+    --input   results/predictions/ClinVar.260309only.BLBvsPLP/merged_prediction_labels_all.tsv \
+    --outdir  results/figures/fig6
+```
+
+### 4d. Explained portion analysis  *(Fig 7)*
+
+Fits logistic regression models to quantify what fraction of GLM-Missense
+prediction errors can be explained by allele frequency, LOEUF, SpliceAI score,
+Grantham distance, and exon boundary proximity.
+
+```bash
+python evaluation/explained_portion_analysis_for_fig7.py \
+    --input   results/predictions/ClinVar.260309only.BLBvsPLP/merged_prediction_labels_all.tsv \
+    --outdir  results/figures/fig7
+```
+
+---
+
+## Data requirements
+
+| Data | Used by | Where to obtain |
 |---|---|---|
-| `eval_strat_af/` | `gnomAD4.1_joint_AF` | ultra-rare / rare / common |
-| `eval_strat_gerp/` | `GERP++_RS` | low / medium / high conservation |
-| `eval_strat_phylop/` | `phyloP100way_vertebrate` | low / medium / high conservation |
-
-To add or remove analyses, edit `STRAT_ANALYSES` at the top of `run_stratified.py`.
-
-> **Prerequisite**: `run_evaluation.py` must have been run first so that
-> `merged.tsv` and `merge_config.tsv` exist in each dataset's predictions folder.
-
-Each stratified run produces its own `eval_strat_{name}/` folder alongside
-`eval_all/`, and `compare_strategies.py` output goes into
-`comparison_strat_{name}/`. Outputs per comparison:
-`comparison_all_methods.tsv`, `pivot_auroc.tsv`, `pivot_prauc.tsv`,
-`plots/grouped_bar_auroc.png`, `plots/heatmap_auroc.png`, `plots/rank_chart_auroc.png`
+| dbNSFP v5.x GRCh38 (bgzipped + tabix index) | `scoring/annotate_dbnsfp.py` | dbNSFP project page |
+| gnomAD v4.1 constraint metrics TSV | `annotate_constraint.py` | gnomad.broadinstitute.org |
+| SpliceAI raw SNV VCF hg38 (bgzipped + tabix index) | `annotate_spliceai.py` | Illumina BaseSpace |
+| Ensembl GRCh38 GTF (any recent release) | `prepare_exon_boundaries.py` | Ensembl FTP |
 
 ---
 
----
-
-## Available conservation columns
-
-Defined in `core/filters.py` → `CONSERVATION_COLS`:
+## pipeline_config.tsv columns
 
 | Column | Description |
 |---|---|
-| `phyloP100way_vertebrate` | PhyloP 100 vertebrates |
-| `phyloP470way_mammalian` | PhyloP 470 mammals |
-| `phyloP17way_primate` | PhyloP 17 primates |
-| `phastCons100way_vertebrate` | PhastCons 100 vertebrates |
-| `phastCons470way_mammalian` | PhastCons 470 mammals |
-| `phastCons17way_primate` | PhastCons 17 primates |
-| `GERP++_RS` | GERP++ RS |
-| `GERP++_NR` | GERP++ NR |
-| `GERP_92_mammals` | GERP 92 mammals |
-| `bStatistic` | Background selection B-statistic |
-
----
-
-## Key design decisions
-
-- **Two-script pipeline**: `prepare_scores.py` handles all scoring; `run_evaluation.py`
-  handles merge and evaluate. They share `pipeline_config.tsv` as the single
-  source of truth. Running them separately lets you re-evaluate without re-scoring.
-- **Score reuse via `--subset`**: BvsP datasets point at the parent's prediction
-  folder. Filtering to P+B variants happens at evaluation time via
-  `evaluate.py --subset`, not at scoring time. No files are copied.
-- **merge_config.tsv is always regenerated**: `run_evaluation.py` rebuilds it
-  from whatever `.tsv` files are present in the predictions folder. To include
-  or exclude a model, add or remove its score file — do not hand-edit
-  `merge_config.tsv`.
-- **Finetune model highlighted by default**: files named `finetune_*.tsv` are
-  assigned `highlight=yes` in the auto-generated `merge_config.tsv`. All
-  highlighted models appear in bold in plots regardless of ranking.
-- **Skip-if-exists in Part 1**: every scoring step checks whether its output
-  file exists before running. Rerunning `prepare_scores.py` after interruption
-  resumes where it left off.
-- **dbNSFP is seq-length agnostic**: `annotate_dbnsfp.py` uses only
-  chromosome/position/ref/alt. seq12k input is used by convention; any size works.
-- **BvsP_ids.tsv naming**: subset ID files follow the pattern
-  `{datadir}/{dataset}.missense.hg38.BvsP_ids.tsv` for clarity.
-- **Flat predictions directory**: all score files for a dataset live in one
-  flat directory regardless of sequence length. dbNSFP annotations live there too.
-- **Shared evaluation subset**: all methods are compared on the intersection of
-  variants with valid REVEL + AlphaMissense scores (configurable via
-  `--anchor_cols`), so no method is penalized for missing variants.
-- **Score direction**: scores whose naive AUROC < 0.5 are automatically flipped
-  (e.g. SIFT, where lower = more damaging).
-- **Missing AF = ultra-rare**: in filter mode, variants absent from gnomAD are
-  included by default (`--include_missing`; disable with `--no-include_missing`).
-- **Sequence files**: `generate_datasets.sh` produces the concatenated
-  `ClinVar.260309only.missense.hg38.seq{size}.tsv` files from per-class
-  `.bed.seq{size}.tsv` files automatically. `concat_sequences.py` has been removed.
+| `dataset_key` | Unique name; determines output folder under `results/predictions/` |
+| `seq12k_input` | Path to seq12k TSV, or `reuse:{parent_key}` for derived datasets, or `premerged:{path}` to skip scoring and merge |
+| `seq6k_input` | Path to seq6k TSV (NT zero-shot only) |
+| `seq30k_input` | Path to seq30k TSV (Caduceus zero-shot only) |
+| `finetune_score` | Output path for GLM-Missense score file |
+| `subset_ids` | Path to BvsP IDs file for derived datasets |
+| `gpu` | GPU ID for scoring |

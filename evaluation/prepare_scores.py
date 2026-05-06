@@ -5,7 +5,7 @@ prepare_scores.py — Part 1 of the evaluation pipeline.
 For each SOURCE row in pipeline_config.tsv (rows where seq12k_input does NOT
 start with "reuse:"), runs:
   1. extract_subset_ids.py  — generates BvsP_ids.tsv for derived datasets
-  2. score_variants.py      — fine-tuned model scoring (skips if output exists)
+  2. GLM-Missense.py        — fine-tuned model scoring (skips if output exists)
   3. zeroshot_nt.py         — NT-2 seq12k, NT-2 seq6k, NT-1 seq6k
   4. zeroshot_caduceus.py   — Caduceus-PS seq30k, Caduceus-Ph seq30k
   5. annotate_dbnsfp.py     — dbNSFP annotations
@@ -144,24 +144,29 @@ def step_extract_subset_ids(row: pd.Series, dry_run: bool) -> None:
 
 
 def step_finetune_score(row: pd.Series, model_path: str, dry_run: bool) -> None:
-    """Run score_variants.py for a source row."""
-    output = str(row["finetune_score"]).strip()
-    if not output:
+    """Run GLM-Missense.py for a source row."""
+    outdir_str = str(row["finetune_score"]).strip()
+    if not outdir_str:
         print("  [skip] finetune scoring — finetune_score not set in config")
         return
 
-    if skip(output, "finetune score"):
+    # finetune_score in pipeline_config is the output directory;
+    # GLM-Missense.py always writes GLM-Missense.tsv inside it.
+    outdir      = Path(outdir_str)
+    output_file = outdir / "GLM-Missense.tsv"
+
+    if skip(output_file, "finetune score"):
         return
 
-    Path(output).parent.mkdir(parents=True, exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
 
     gpu = str(row.get("gpu", 0))
-    print(f"\n── Fine-tuned scoring → {output}")
+    print(f"\n── Fine-tuned scoring → {output_file}")
     cmd = [
-        "python", "scoring/score_variants.py",
+        "python", "scoring/GLM-Missense.py",
         "--input",      str(row["seq12k_input"]),
         "--model",      model_path,
-        "--output",     output,
+        "--outdir",     str(outdir),
         "--batch_size", "128",
         "--gpu",        gpu,
     ]
@@ -208,7 +213,7 @@ def step_dbnsfp(row: pd.Series, dbnsfp_path: str, dry_run: bool) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     print(f"\n── dbNSFP annotation → {output}")
     cmd = [
-        "python", "evaluation/annotate_dbnsfp.py",
+        "python", "scoring/annotate_dbnsfp.py",
         "--variants", str(row["seq12k_input"]),
         "--dbnsfp",   dbnsfp_path,
         "--outdir",   str(outdir),

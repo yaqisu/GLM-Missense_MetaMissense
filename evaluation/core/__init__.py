@@ -19,7 +19,8 @@ from .plots import (
 from .filters import (
     CONSERVATION_COLS, AF_COLS,
     AF_STRATA_DEFAULT, GERP_STRATA_DEFAULT, PHYLOP_STRATA_DEFAULT,
-    LOEUF_STRATA_DEFAULT, SPLICEAI_STRATA_DEFAULT,
+    LOEUF_STRATA_DEFAULT, SPLICEAI_STRATA_DEFAULT, EXON_BOUNDARY_STRATA_DEFAULT,
+    DELTA_CAI_STRATA_DEFAULT, DELTA_MFE_STRATA_DEFAULT, TF_DISRUPTION_STRATA_DEFAULT,
     apply_af_filter, apply_conservation_filter,
     stratify_by_column, parse_custom_strata, apply_anchor_filter,
 )

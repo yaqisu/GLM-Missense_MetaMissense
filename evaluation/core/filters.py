@@ -123,7 +123,8 @@ PHYLOP_STRATA_DEFAULT = [
 
 # Gene constraint strata — LOEUF upper bound (lower = more constrained)
 LOEUF_STRATA_DEFAULT = [
-    ("LOEUF<0.35",        None,  0.35),   # most constrained
+    ("LOEUF<0.2",         None,  0.2),    # most constrained (~pLI>0.999)
+    ("0.2<=LOEUF<0.35",   0.2,   0.35),   # constrained (~pLI 0.99)
     ("0.35<=LOEUF<0.6",   0.35,  0.6),
     ("0.60<=LOEUF<0.85",  0.6,   0.85),
     ("LOEUF>=0.85",       0.85,  None),   # least constrained
@@ -131,10 +132,41 @@ LOEUF_STRATA_DEFAULT = [
 
 # SpliceAI strata — stratify by max delta score (higher = more splice impact)
 SPLICEAI_STRATA_DEFAULT = [
-    ("spliceAI<0.1",        None,  0.1),   # likely no splice effect
-    ("0.1<=spliceAI<0.2",   0.1,   0.2),   # low
-    ("0.2<=spliceAI<0.5",   0.2,   0.5),   # moderate
-    ("spliceAI>=0.5",       0.5,   None),   # high splice impact
+    ("SpliceAI<0.1",        None,  0.1),   # likely no splice effect
+    ("0.1<=SpliceAI<0.2",   0.1,   0.2),   # low
+    ("0.2<=SpliceAI<0.5",   0.2,   0.5),   # moderate
+    ("SpliceAI>=0.5",       0.5,   None),   # high splice impact
+]
+
+# Exon boundary distance strata — distance (bp) to nearest exon boundary
+EXON_BOUNDARY_STRATA_DEFAULT = [
+    ("dist_1-3bp",   0.5,  3.5),    # ±1,2,3 — canonical splice window
+    ("dist_4-10bp",  3.5,  10.5),
+    ("dist_11-30bp", 10.5, 30.5),
+    ("dist_>30bp",   30.5, None),
+]
+
+# Codon optimality strata — by delta_CAI
+DELTA_CAI_STRATA_DEFAULT = [
+    ("dCAI<-0.2",      None,  -0.2),   # less optimal codon
+    ("-0.2<=dCAI<0.2", -0.2,   0.2),   # neutral
+    ("dCAI>=0.2",       0.2,   None),  # more optimal codon
+]
+
+# mRNA structure disruption strata — by abs_delta_MFE
+DELTA_MFE_STRATA_DEFAULT = [
+    ("|dMFE|<0.5",      None,  0.5),    # ~25% of variants — minimal change
+    ("0.5<=|dMFE|<1.0", 0.5,   1.0),   # ~25%
+    ("1.0<=|dMFE|<2.1", 1.0,   2.1),   # ~25%
+    ("2.1<=|dMFE|<3.2", 2.1,   3.2),   # ~15% — moderate disruption
+    ("|dMFE|>=3.2",     3.2,   None),   # ~10% — strong disruption (top 10%)
+]
+
+# TF binding disruption strata — by max_TF_disruption
+TF_DISRUPTION_STRATA_DEFAULT = [
+    ("TF_chg<1.0",      None,  1.0),
+    ("1.0<=TF_chg<3.0", 1.0,   3.0),
+    ("TF_chg>=3.0",     3.0,   None),  # duon / TF disrupted
 ]
 
 def stratify_by_column(df: pd.DataFrame, col: str,

@@ -120,10 +120,15 @@ def main():
         base_cols.append(LABEL_COL)
 
     merged = df_primary[base_cols].copy()
-    if 'pathogenicity_score' in df_primary.columns:
+    # Accept either the new canonical column name or the legacy name used by
+    # zero-shot scripts (pathogenicity_score).
+    if f'{primary_label}_score' in df_primary.columns:
+        merged[f'{primary_label}_score'] = df_primary[f'{primary_label}_score'].values
+    elif 'pathogenicity_score' in df_primary.columns:
         merged[f'{primary_label}_score'] = df_primary['pathogenicity_score'].values
     else:
-        print(f"  WARNING: 'pathogenicity_score' not found in primary model", file=sys.stderr)
+        print(f"  WARNING: neither '{primary_label}_score' nor 'pathogenicity_score' "
+              f"found in primary model", file=sys.stderr)
 
     # ── Join all other model files on variant_id ───────────────────────────
     for _, row in model_rows.iloc[1:].iterrows():
@@ -136,8 +141,11 @@ def main():
             print(f"  WARNING: file not found, skipping", file=sys.stderr)
             continue
 
-        df = pd.read_csv(path, sep='\t', usecols=['variant_id', 'pathogenicity_score'])
-        df = df.rename(columns={'pathogenicity_score': f'{label}_score'})
+        # Accept either the canonical column name or the legacy pathogenicity_score
+        score_col = f'{label}_score' if f'{label}_score' in pd.read_csv(path, sep='\t', nrows=0).columns \
+                    else 'pathogenicity_score'
+        df = pd.read_csv(path, sep='\t', usecols=['variant_id', score_col])
+        df = df.rename(columns={score_col: f'{label}_score'})
 
         n_before = len(merged)
         merged = merged.merge(df, on='variant_id', how='left')
