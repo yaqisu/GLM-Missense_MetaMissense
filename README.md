@@ -90,15 +90,6 @@ the training and evaluation scripts.
 
 ---
 
-## Requirements
-
-```bash
-conda env create -f environment.yml
-conda activate glm-finetune
-```
-
----
-
 ## Citation
 
 Su Y, Lin YJ. *A fine-tuned genomic language model adds complementary
