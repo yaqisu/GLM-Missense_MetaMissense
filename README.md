@@ -67,8 +67,7 @@ train/val files. See [`preprocessing/README.md`](preprocessing/README.md).
 
 Contains all training scripts for the frozen backbone ablations (NT2, NT1,
 Caduceus), LoRA and full fine-tuning sweeps, cross-validation, and the final
-GLM-Missense model. The exact commands used in the paper are in `training/runs.sh`.
-See [`training/README.md`](training/README.md).
+GLM-Missense model. The commands used for training and evaluating the final GLM-Missense model are in `training/runs.sh`.
 
 ### `scoring/` — Scoring variants
 
