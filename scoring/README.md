@@ -37,7 +37,7 @@ at the variant position.
 | Classifier head | 2-layer MLPClassifierHead |
 | Combine mode | `concat_diff`: [ref, alt, ref − alt] |
 | Embedding strategy | Variant-position token (token 1000) |
-| Training data | BvsP ClinVar missense variants |
+| Training data | B/LB vs P/LP ClinVar missense variants |
 | Sequence length | 12 kb (5,999 bp flanking each side) |
 
 ```
