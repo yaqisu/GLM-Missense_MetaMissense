@@ -91,5 +91,5 @@ the training and evaluation scripts.
 
 ## Citation
 
-Su Y, Lin YJ. *A fine-tuned genomic language model adds complementary
-nucleotide-context information to missense variant interpretation.* In preparation.
+Su Y & Lin YJ. A fine-tuned genomic language model adds complementary
+nucleotide-context information to missense variant interpretation. Preprint at bioRxiv. <https://doi.org/10.64898/2026.05.06.723362> (2026).
