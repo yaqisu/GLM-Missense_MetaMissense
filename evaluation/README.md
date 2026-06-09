@@ -335,7 +335,7 @@ Outputs `results/figures/fig_training_curve.pdf/png`.
 
 ### 4h. Method-resolved vs background  *(Fig S8)*
 
-Plots  each method's rescue against its own background, with
+Plots  each method's resolved variants against its own background, with
 Mann-Whitney (or Fisher exact for the radical-AA panel) testing rescue vs
 own-background within method. n is annotated under every box.
 
