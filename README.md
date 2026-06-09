@@ -91,4 +91,4 @@ the training and evaluation scripts.
 
 ## Citation
 
-Su Y & Lin YJ. A fine-tuned genomic language model captures nucleotide- level information overlooked by missense variant impact predictors. Preprint at bioRxiv. <https://doi.org/10.64898/2026.05.06.723362> (2026).
+Su Y & Lin YJ. A fine-tuned genomic language model captures nucleotide-level information overlooked by missense variant impact predictors. Preprint at bioRxiv. <https://doi.org/10.64898/2026.05.06.723362> (2026).
