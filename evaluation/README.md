@@ -36,14 +36,14 @@ evaluation/
 ├── prepare_exon_boundaries.py      # Parse Ensembl GTF → exon parquet (run once)
 │
 │   ── Figure analyses ──
-├── frozen_model_comparison.py               # Fig 2      — frozen backbone comparison (NT-2, NT-1, Caduceus)
-├── evaluate_partial_correlation.py          # Fig 4B     — partial Spearman r controlling for other methods
-├── plot_feature_importance.py               # Fig 4C     — XGBoost permutation feature importance
-├── plot_cv_results.py                       # Fig 5AB    — cross-validation AUROC and AUPRC
-├── label_prediction_sets.py                 # Fig 6 prep — binary labels + correctness flags per method
-├── glmmissense_correct_analysis_for_fig6.py # Fig 6      — GLM-Missense-correct subset analysis
-├── explained_portion_analysis_for_fig7.py   # Fig 7      — explained portion of GLM-Missense errors
-└── plot_training_curves.py                  # Fig S4     — training and validation curves
+├── evaluate_partial_correlation.py            # Fig 4B     — partial Spearman r controlling for other methods
+├── plot_feature_importance.py                 # Fig 4C     — XGBoost permutation feature importance
+├── plot_cv_results.py                         # Fig 5AB    — cross-validation AUROC and AUPRC
+├── label_prediction_sets.py                   # Fig 6 prep — binary labels + correctness flags per method
+├── glmmissense_correct_analysis_for_fig6.py   # Fig 6      — GLM-Missense-correct subset analysis
+├── frozen_model_comparison.py                 # Fig S2     — frozen backbone comparison (NT-2, NT-1, Caduceus)
+└── plot_training_curves.py                    # Fig S4     — training and validation curves
+└── multi_method_resolved_vs_own_background.py # Fig S8     — method resolved variants
 │
 └── core/                           # Shared library (metrics, filters, plots)
     ├── metrics.py
@@ -80,15 +80,14 @@ evaluation/
         │
         ▼
 [Step 4] Figure analyses
-        ├── frozen_model_comparison.py               Fig 2
-        ├── evaluate_partial_correlation.py          Fig 4B
-        ├── plot_feature_importance.py               Fig 4C
-        ├── plot_cv_results.py                       Fig 5AB
-        ├── label_prediction_sets.py                 Fig 6 prep
-        ├── glmmissense_correct_analysis_for_fig6.py Fig 6
-        ├── explained_portion_analysis_for_fig7.py   Fig 7
-        └── plot_training_curves.py                  Fig S4
-
+        ├── evaluate_partial_correlation.py            Fig 4B
+        ├── plot_feature_importance.py                 Fig 4C
+        ├── plot_cv_results.py                         Fig 5AB
+        ├── label_prediction_sets.py                   Fig 6 prep
+        ├── glmmissense_correct_analysis_for_fig6.py   Fig 6
+        ├── frozen_model_comparison.py                 Fig S2
+        ├── plot_training_curves.py                    Fig S4
+        └── multi_method_resolved_vs_own_background.py Fig S8
 > Some figures are generated inline by earlier pipeline steps or assembled manually and are not listed here.
 
 ---
