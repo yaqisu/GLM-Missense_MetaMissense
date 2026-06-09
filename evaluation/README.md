@@ -242,23 +242,13 @@ Columns added: `exon_boundary_dist`, `exon_boundary_5prime`,
 
 ## Step 4 — Figure analyses
 
-These scripts reproduce the main paper figures. Steps 4e (label_prediction_sets)
-must be run before 4f and 4g, as those depend on its output. All other steps
+These scripts reproduce the main paper figures. Steps 4d (label_prediction_sets)
+must be run before 4e, as those depend on its output. All other steps
 are standalone.
-
-### 4a. Frozen backbone comparison  *(Fig 2)*
-
-Plots training and validation AUROC curves for all frozen-backbone model
-configurations (NT-2, NT-1, Caduceus) across classifier heads and embedding
-strategies.
-
-```bash
-python evaluation/frozen_model_comparison.py
-```
 
 Reads `results/frozen_results.tsv`. Outputs `results/figures/frozen_model_comparison.pdf/png`.
 
-### 4b. Partial correlation analysis  *(Fig 4B)*
+### 4a. Partial correlation analysis  *(Fig 4B)*
 
 Computes partial Spearman r for each predictor controlling for all others,
 quantifying the unique predictive signal each method contributes.
@@ -270,7 +260,7 @@ python evaluation/evaluate_partial_correlation.py
 Outputs `partial_correlation_results.tsv` and `partial_correlation.pdf/png`
 alongside each `merged.tsv`.
 
-### 4c. XGBoost feature importance  *(Fig 4C)*
+### 4b. XGBoost feature importance  *(Fig 4C)*
 
 Plots permutation feature importance (mean AUPRC decrease) for the MetaMissense
 XGBoost ensemble.
@@ -281,7 +271,7 @@ python evaluation/plot_feature_importance.py
 
 Reads `results/ensemble/feature_importance.csv`. Outputs `results/figures/fig_feature_importance.pdf/png`.
 
-### 4d. Cross-validation results  *(Fig 5AB)*
+### 4c. Cross-validation results  *(Fig 5AB)*
 
 Plots cross-validation AUROC and AUPRC for all methods with a significance
 bracket between MetaMissense and REVEL.
@@ -292,7 +282,7 @@ python evaluation/plot_cv_results.py
 
 Reads `results/ensemble/cv_results.tsv`. Outputs `results/figures/fig_cv_results.pdf/png`.
 
-### 4e. Binary prediction labels and correctness flags  *(prerequisite for Figs 6, 7)*
+### 4d. Binary prediction labels and correctness flags  *(prerequisite for Figs 6)*
 
 Binarizes each predictor at its standard threshold, adds per-variant
 correctness flags, and generates 7×7 focal-method-correct-while-≤N-others-correct
@@ -308,7 +298,7 @@ python evaluation/label_prediction_sets.py \
 Outputs per dataset: `merged_prediction_labels_all.tsv` (all variants) and
 `merged_prediction_labels_all_overlap.tsv` (variants with all 7 methods scored).
 
-### 4f. GLM-Missense-correct subset analysis  *(Fig 6)*
+### 4e. GLM-Missense-correct subset analysis  *(Fig 6)*
 
 Characterises the GLM-Missense-correct subset: variants where GLM-Missense is
 correctly classified and at least four of the other six methods are wrong
@@ -321,19 +311,17 @@ python evaluation/glmmissense_correct_analysis_for_fig6.py \
     --outdir  results/figures/fig6
 ```
 
-### 4g. Explained portion analysis  *(Fig 7)*
+### 4f. Frozen backbone comparison  *(Fig S2)*
 
-Fits logistic regression models to quantify what fraction of GLM-Missense
-prediction errors can be explained by allele frequency, LOEUF, SpliceAI score,
-Grantham distance, and exon boundary proximity.
+Plots training and validation AUROC curves for all frozen-backbone model
+configurations (NT-2, NT-1, Caduceus) across classifier heads and embedding
+strategies.
 
 ```bash
-python evaluation/explained_portion_analysis_for_fig7.py \
-    --input   results/predictions/ClinVar.260309only.BLBvsPLP/merged_prediction_labels_all.tsv \
-    --outdir  results/figures/fig7
+python evaluation/frozen_model_comparison.py
 ```
 
-### 4h. Training curves  *(Fig S4)*
+### 4g. Training curves  *(Fig S4)*
 
 Plots training and validation AUROC/AUPRC curves with early stopping annotation
 for the best GLM-Missense model.
@@ -344,6 +332,20 @@ python evaluation/plot_training_curves.py
 
 Reads `results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv`.
 Outputs `results/figures/fig_training_curve.pdf/png`.
+
+### 4h. Method-resolved vs background  *(Fig S8)*
+
+Plots  each method's rescue against its own background, with
+Mann-Whitney (or Fisher exact for the radical-AA panel) testing rescue vs
+own-background within method. n is annotated under every box.
+
+```bash
+python evaluation/multi_method_rescue_own_background.py \
+  --merged-set results/predictions/ClinVar.260309only.BLBvsPLP/merged_prediction_labels_all_overlap.tsv \
+  --out-dir evaluation/results/multi_method_rescue_ownbg \
+  --le-threshold 2 \
+  --no-spliceai
+```
 
 > Some figures are generated inline by earlier pipeline steps or assembled manually and are not listed here.
 
