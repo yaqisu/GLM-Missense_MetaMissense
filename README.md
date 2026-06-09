@@ -1,4 +1,4 @@
-# A Fine-tuned Genomic Language Model Adds Complementary Nucleotide-Context Information to Missense Variant Interpretation
+# A fine-tuned genomic language model captures nucleotide-level information overlooked by missense variant impact predictors
 
 **Yaqi Su and Yu-Jen Lin** *(co-frist authors)*
 
@@ -91,5 +91,4 @@ the training and evaluation scripts.
 
 ## Citation
 
-Su Y, Lin YJ. *A fine-tuned genomic language model adds complementary
-nucleotide-context information to missense variant interpretation.* In preparation.
+Su Y & Lin YJ. A fine-tuned genomic language model captures nucleotide-level information overlooked by missense variant impact predictors. Preprint at bioRxiv. <https://doi.org/10.64898/2026.05.06.723362> (2026).
