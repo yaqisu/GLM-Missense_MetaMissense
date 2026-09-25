@@ -185,7 +185,7 @@ split_dataset() {
 
 # --- Helper: concatenate all per-class TSVs into one file (for split=no datasets) ---
 # Output: {SEQ_DIR}/{dataset_prefix}.seq{suffix}.tsv
-# e.g. ClinVar.260309only.missense.hg38.seq12k.tsv
+# e.g. {dataset_prefix}.seq12k.tsv
 # Includes all classes: class0, class1, and unlabeled if present.
 concat_dataset() {
     local name="$1"

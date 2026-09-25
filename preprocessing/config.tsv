@@ -16,7 +16,10 @@
 #
 # NOTE: File must end with a blank line or the last dataset row will be silently skipped.
 #
+# BvsP     = B vs P.
+# BLBvsPLP = B + LB + B/LB vs P + LP + P/LP.
+#
 # name	class0_files	class1_files	unlabeled_files	split
 ClinVar.251103.missense.hg38.BvsP	data/bed/ClinVar.251103.missense.hg38.benign.bed	data/bed/ClinVar.251103.missense.hg38.pathogenic.bed		yes
-ClinVar.251103.missense.hg38.BLBvsPLP	data/bed/ClinVar.251103.missense.hg38.benign.bed;data/bed/ClinVar.251103.missense.hg38.likely_benign.bed	data/bed/ClinVar.251103.missense.hg38.pathogenic.bed;data/bed/ClinVar.251103.missense.hg38.likely_pathogenic.bed		yes
-ClinVar.260309only.missense.hg38.BLBvsPLP	data/bed/ClinVar.260309only.missense.hg38.benign.bed;data/bed/ClinVar.260309only.missense.hg38.likely_benign.bed	data/bed/ClinVar.260309only.missense.hg38.pathogenic.bed;data/bed/ClinVar.260309only.missense.hg38.likely_pathogenic.bed		no
+ClinVar.251103.missense.hg38.BLBvsPLP	data/bed/ClinVar.251103.missense.hg38.benign.bed;data/bed/ClinVar.251103.missense.hg38.likely_benign.bed;data/bed/ClinVar.251103.missense.hg38.benign_likely_benign.bed	data/bed/ClinVar.251103.missense.hg38.pathogenic.bed;data/bed/ClinVar.251103.missense.hg38.likely_pathogenic.bed;data/bed/ClinVar.251103.missense.hg38.pathogenic_likely_pathogenic.bed		yes
+ClinVar.260923only.missense.hg38.BLBvsPLP	data/bed/ClinVar.260923only.missense.hg38.benign.bed;data/bed/ClinVar.260923only.missense.hg38.likely_benign.bed;data/bed/ClinVar.260923only.missense.hg38.benign_likely_benign.bed	data/bed/ClinVar.260923only.missense.hg38.pathogenic.bed;data/bed/ClinVar.260923only.missense.hg38.likely_pathogenic.bed;data/bed/ClinVar.260923only.missense.hg38.pathogenic_likely_pathogenic.bed		yes
