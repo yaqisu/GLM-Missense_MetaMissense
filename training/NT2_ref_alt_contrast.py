@@ -79,7 +79,7 @@ EXPERIMENT_CONFIGS = [
         "combine_mode": "concat_diff",
         "lora_rank": 32,
         "batch_size": 8,                    # 8 total / 4 GPUs = 2 per GPU
-        "num_steps": 17000,                 # steps = (epochs × samples) / effective_batch_size = (3.6 × 151,015) / 32 = ~17,000 steps
+        "num_steps": 19000,                 # steps = (epochs × samples) / effective_batch_size = (3.6 × 170,475) / 32 = ~19,000 steps
         "gradient_accumulation_steps": 4,   # effective batch = 8 * 4 = 32
         "learning_rate": 5e-5,
     }
