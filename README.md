@@ -50,11 +50,11 @@ relevant.
 
 ### `data/` — Input data
 
-ClinVar BED files for both timestamps (`251103` and `260923`) are tracked in
-`data/bed/` and are the primary inputs to the preprocessing pipeline. All other
-data files (reference genome, extracted sequences, train/val splits, dbNSFP,
-SpliceAI, gnomAD constraint) are gitignored due to size — download instructions
-are in the relevant README for each step.
+All data files are gitignored. ClinVar BED files for both timestamps (`251103`
+and `260923`) are generated into `data/bed/` by the preprocessing pipeline and
+are its primary inputs. Other data files (reference genome, extracted sequences,
+train/val splits, dbNSFP, SpliceAI, gnomAD constraint) are gitignored due to
+size — download instructions are in the relevant README for each step.
 
 ### `preprocessing/` — Data preparation
 

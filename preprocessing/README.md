@@ -223,7 +223,7 @@ mv Homo_sapiens.GRCh38.dna.primary_assembly.fa data/reference/
 | Path | Tracked in git | Notes |
 |------|---------------|-------|
 | `data/vcf/` | No | Downloaded ClinVar VCFs; regenerate with `process_clinvar.sh` |
-| `data/bed/` | Yes | ClinVar BED files for both timestamps + `260923only` (~few MB each) |
+| `data/bed/` | No | ClinVar BED files for both timestamps + `260923only`; regenerate with `process_clinvar.sh` and `subtract_new_variants.py` |
 | `data/reference/` | No | Reference genome (~3 GB); download instructions in Step 3 |
 | `data/sequences/` | No | Per-class TSVs + concatenated files for `split=no` rows; regenerate with `generate_datasets.sh` |
 | `data/splits/` | No | Train/val split files (`split=yes` rows only); regenerate with `generate_datasets.sh` |
