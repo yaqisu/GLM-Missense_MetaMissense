@@ -9,20 +9,23 @@
 #
 # Options:
 #   -t <timestamps>    Comma-separated ClinVar timestamps to process.
-#                      e.g. clinvar_20251103,clinvar_20260309
+#                      e.g. clinvar_20251103,clinvar_20260923
 #   -b <path>          Path to bcftools binary (default: bcftools on PATH).
 #   -h                 Show this help message.
 #
 # Example:
 #   ./process_clinvar.sh \
-#       -t clinvar_20251103,clinvar_20260309 \
+#       -t clinvar_20251103,clinvar_20260923 \
 #       -b /h/jenniferlin/Programs/bcftools/bin/bcftools
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Defaults
 # -----------------------------------------------------------------------------
-BASE_URL="https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/weekly"
+set -o pipefail   # a failing bcftools must not leave an empty output file
+
+BASE_URLS=("https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/weekly"
+           "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38")
 BCFTOOLS="bcftools"
 VCF_DIR="data/vcf"
 BED_DIR="data/bed"
@@ -33,6 +36,8 @@ CLNSIG_LABELS=(
     "Likely_pathogenic:likely_pathogenic"
     "Benign:benign"
     "Likely_benign:likely_benign"
+    "Benign/Likely_benign:benign_likely_benign"
+    "Pathogenic/Likely_pathogenic:pathogenic_likely_pathogenic"
 )
 
 # -----------------------------------------------------------------------------
@@ -68,10 +73,9 @@ check_deps() {
     for cmd in wget bgzip; do
         command -v "${cmd}" &>/dev/null || die "'${cmd}' not found. Please install it."
     done
-    # bcftools may be an absolute path or a name on PATH
-    if [[ ! -x "${BCFTOOLS}" ]] && ! command -v "${BCFTOOLS}" &>/dev/null; then
-        die "bcftools not found at '${BCFTOOLS}'. Use -b to specify the path."
-    fi
+    # bcftools may be an absolute path or a name on PATH; must actually run
+    "${BCFTOOLS}" --version &>/dev/null \
+        || die "bcftools not runnable at '${BCFTOOLS}'. Use -b with the path to the binary (e.g. .../bin/bcftools)."
 }
 
 # -----------------------------------------------------------------------------
@@ -81,22 +85,35 @@ check_deps() {
 download_vcf() {
     local stem="$1"
     local gz="${VCF_DIR}/${stem}.vcf.gz"
-    local tbi="${gz}.tbi"
-    local md5="${gz}.md5"
 
     log "--- Downloading ${stem} ---"
 
-    # Download (skip if already present)
-    for ext in vcf.gz vcf.gz.tbi; do
-        local dest="${VCF_DIR}/${stem}.${ext}"
-        if [[ -f "${dest}" ]]; then
-            log "  Already exists, skipping: ${dest}"
-        else
-            log "  Fetching ${stem}.${ext}"
-            wget -q --show-progress -O "${dest}" "${BASE_URL}/${stem}.${ext}"
-        fi
-    done
+    if [[ -f "${gz}" && -f "${gz}.tbi" ]]; then
+        log "  Already exists, skipping: ${gz}"
+    else
+        # Try each FTP location (the current release sits in vcf_GRCh38/, older
+        # weekly releases in weekly/); take all files from the first that has it.
+        local base
+        for base in "${BASE_URLS[@]}"; do
+            if wget -q --spider "${base}/${stem}.vcf.gz"; then
+                log "  Fetching ${stem}.vcf.gz{,.tbi,.md5} from ${base}"
+                for ext in vcf.gz vcf.gz.tbi vcf.gz.md5; do
+                    wget -q --show-progress -O "${VCF_DIR}/${stem}.${ext}" "${base}/${stem}.${ext}"
+                done
+                break
+            fi
+        done
+        [[ -f "${gz}" ]] || die "${stem}.vcf.gz not found at: ${BASE_URLS[*]}"
+    fi
 
+    # Verify checksum when the .md5 is available
+    if [[ -f "${gz}.md5" ]]; then
+        local expected actual
+        expected=$(grep -oE '[0-9a-f]{32}' "${gz}.md5" | head -1)
+        actual=$(md5sum "${gz}" | cut -d' ' -f1)
+        [[ "${expected}" == "${actual}" ]] || die "md5 mismatch for ${gz}"
+        log "  md5 OK"
+    fi
 }
 
 # -----------------------------------------------------------------------------
@@ -114,7 +131,9 @@ extract_missense() {
     fi
 
     log "  Extracting missense variants -> $(basename "${dest}")"
-    "${BCFTOOLS}" view -i 'INFO/MC ~ "missense"' "${src}" | bgzip > "${dest}"
+    "${BCFTOOLS}" view -i 'INFO/MC ~ "missense"' "${src}" | bgzip > "${dest}.tmp" \
+        && mv "${dest}.tmp" "${dest}" \
+        || { rm -f "${dest}.tmp"; die "missense extraction failed for ${src}"; }
     log "  Done: $(basename "${dest}")"
 }
 
@@ -146,7 +165,9 @@ extract_bed() {
                 print "chr"$1, $2-1, $2, $3, $4, $5
           }' \
         | sort -k1,1V -k2,2n \
-        > "${dest}"
+        > "${dest}.tmp" \
+        && mv "${dest}.tmp" "${dest}" \
+        || { rm -f "${dest}.tmp"; die "BED extraction failed for ${clnsig} (${src})"; }
 
     local n
     n=$(wc -l < "${dest}")
