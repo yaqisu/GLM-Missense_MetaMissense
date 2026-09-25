@@ -25,14 +25,14 @@ it feeds into evaluation/merge_predictions.py without modification.
 
 Usage (run from repo root):
     python evaluation/zeroshot_caduceus.py \\
-        --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
-        --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPS_seq30k.tsv \\
+        --input  data/splits/ClinVar.260923only.missense.hg38.seq30k.BLBvsPLP_validation.tsv \\
+        --output results/predictions/ClinVar.260923only.seq30k/zeroshot_CaduceusPS_seq30k.tsv \\
         --gpu 2
 
     # Caduceus-Ph variant
     python evaluation/zeroshot_caduceus.py \\
-        --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
-        --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPh_seq30k.tsv \\
+        --input  data/splits/ClinVar.260923only.missense.hg38.seq30k.BLBvsPLP_validation.tsv \\
+        --output results/predictions/ClinVar.260923only.seq30k/zeroshot_CaduceusPh_seq30k.tsv \\
         --model_name kuleshov-group/caduceus-ph_seqlen-131k_d_model-256_n_layer-16 \\
         --gpu 2
 """
@@ -81,8 +81,8 @@ def main():
         epilog="""
 Example:
   python evaluation/zeroshot_caduceus.py \\
-      --input  data/sequences/ClinVar.260309only.missense.hg38.seq30k.tsv \\
-      --output results/predictions/ClinVar.260309only.seq30k/zeroshot_CaduceusPS_seq30k.tsv \\
+      --input  data/splits/ClinVar.260923only.missense.hg38.seq30k.BLBvsPLP_validation.tsv \\
+      --output results/predictions/ClinVar.260923only.seq30k/zeroshot_CaduceusPS_seq30k.tsv \\
       --gpu 2
         """
     )

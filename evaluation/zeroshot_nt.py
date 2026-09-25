@@ -21,15 +21,15 @@ evaluation/merge_predictions.py without modification.
 
 Usage (run from repo root):
     python evaluation/zeroshot_nt.py \\
-        --input  data/sequences/ClinVar.260309only.seq12k.tsv \\
-        --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2_seq12k.tsv \\
+        --input  data/splits/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_validation.tsv \\
+        --output results/predictions/ClinVar.260923only.seq12k/zeroshot_NT2_seq12k.tsv \\
         --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \\
         --gpu 0
 
     # NT-1 (human-only model)
     python evaluation/zeroshot_nt.py \\
-        --input  data/sequences/ClinVar.260309only.seq12k.tsv \\
-        --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT1_seq12k.tsv \\
+        --input  data/splits/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_validation.tsv \\
+        --output results/predictions/ClinVar.260923only.seq12k/zeroshot_NT1_seq12k.tsv \\
         --model_name InstaDeepAI/nucleotide-transformer-500m-human-ref \\
         --gpu 1
 """
@@ -83,8 +83,8 @@ def main():
         epilog="""
 Example:
   python evaluation/zeroshot_nt.py \\
-      --input  data/sequences/ClinVar.260309only.seq12k.tsv \\
-      --output results/predictions/ClinVar.260309only.seq12k/zeroshot_NT2_seq12k.tsv \\
+      --input  data/splits/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_validation.tsv \\
+      --output results/predictions/ClinVar.260923only.seq12k/zeroshot_NT2_seq12k.tsv \\
       --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \\
       --gpu 0
         """
