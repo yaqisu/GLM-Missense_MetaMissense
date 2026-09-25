@@ -72,7 +72,7 @@ def resolve_premerged_path(seq12k_input: str) -> str | None:
     If seq12k_input starts with 'premerged:', return the path to the
     pre-existing merged.tsv. Scoring and merge steps are both skipped.
     The path may be absolute or relative (to the repo root).
-    Example:  premerged:results/predictions/ClinVar_260309only.testset/merged.tsv
+    Example:  premerged:results/predictions/ClinVar_260923only.testset/merged.tsv
     """
     if str(seq12k_input).startswith("premerged:"):
         return seq12k_input.split("premerged:", 1)[1].strip()

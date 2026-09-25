@@ -26,8 +26,8 @@ determine which columns to highlight — no separate JSON file needed.
 
 Usage:
     python evaluation/merge.py \\
-        --config  results/predictions/ClinVar.260309only/merge_config.tsv \\
-        --output  results/predictions/ClinVar.260309only/merged.tsv
+        --config  results/predictions/ClinVar.260923only/merge_config.tsv \\
+        --output  results/predictions/ClinVar.260923only/merged.tsv
 """
 
 import argparse

@@ -4,9 +4,9 @@ Step 2 — Annotate variants with ALL dbNSFP scores via tabix.
 
 Usage:
     python evaluation/02_annotate_dbnsfp.py \
-        --variants data/sequences/ClinVar.260309only.seq12k.pb.tsv \
+        --variants data/sequences/ClinVar.260923only.seq12k.pb.tsv \
         --dbnsfp   data/dbnsfp/dbNSFP5.3.1a_grch38.gz \
-        --outdir   results/predictions/ClinVar.260309only.seq12k.pb
+        --outdir   results/predictions/ClinVar.260923only.seq12k.pb
 
 Downloads (if you don't have dbNSFP yet):
     curl --http1.1 -C - -o data/dbnsfp/dbNSFP5.3.1a_grch38.gz \\

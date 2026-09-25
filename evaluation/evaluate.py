@@ -14,31 +14,31 @@ Three modes:
 Usage:
     # ── Full evaluation ──────────────────────────────────────────────────
     python evaluation/evaluate.py \\
-        --merged  results/predictions/ClinVar.260309only/merged.tsv \\
-        --config  results/predictions/ClinVar.260309only/merge_config.tsv \\
-        --outdir  results/predictions/ClinVar.260309only/eval_all
+        --merged  results/predictions/ClinVar.260923only/merged.tsv \\
+        --config  results/predictions/ClinVar.260923only/merge_config.tsv \\
+        --outdir  results/predictions/ClinVar.260923only/eval_all
 
     # P+B subset only
     python evaluation/evaluate.py \\
-        --merged  results/predictions/ClinVar.260309only/merged.tsv \\
-        --config  results/predictions/ClinVar.260309only/merge_config.tsv \\
-        --outdir  results/predictions/ClinVar.260309only/eval_pb \\
-        --subset  data/sequences/ClinVar.260309only.missense.hg38.pb_ids.tsv
+        --merged  results/predictions/ClinVar.260923only/merged.tsv \\
+        --config  results/predictions/ClinVar.260923only/merge_config.tsv \\
+        --outdir  results/predictions/ClinVar.260923only/eval_pb \\
+        --subset  data/sequences/ClinVar.260923only.missense.hg38.pb_ids.tsv
 
     # ── Filter mode ──────────────────────────────────────────────────────
     python evaluation/evaluate.py \\
-        --merged    results/predictions/ClinVar.260309only/merged.tsv \\
-        --config    results/predictions/ClinVar.260309only/merge_config.tsv \\
-        --outdir    results/predictions/ClinVar.260309only/eval_rare_1e-3 \\
+        --merged    results/predictions/ClinVar.260923only/merged.tsv \\
+        --config    results/predictions/ClinVar.260923only/merge_config.tsv \\
+        --outdir    results/predictions/ClinVar.260923only/eval_rare_1e-3 \\
         --mode      filter \\
         --col       gnomAD4.1_joint_AF \\
         --threshold 1e-3
 
     # ── Stratify mode ────────────────────────────────────────────────────
     python evaluation/evaluate.py \\
-        --merged  results/predictions/ClinVar.260309only/merged.tsv \\
-        --config  results/predictions/ClinVar.260309only/merge_config.tsv \\
-        --outdir  results/predictions/ClinVar.260309only/eval_strat_af \\
+        --merged  results/predictions/ClinVar.260923only/merged.tsv \\
+        --config  results/predictions/ClinVar.260923only/merge_config.tsv \\
+        --outdir  results/predictions/ClinVar.260923only/eval_strat_af \\
         --mode    stratify \\
         --col     gnomAD4.1_joint_AF \\
         --strata  builtin_af

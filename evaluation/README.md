@@ -98,10 +98,10 @@ Four ClinVar datasets are evaluated:
 
 | Dataset key | Variant classes | Split |
 |---|---|---|
-| `ClinVar.251103.BLBvsPLP` | Pathogenic/LP vs Benign/LB | Validation chromosomes only |
+| `ClinVar.251103.BLBvsPLP` | P + LP + P/LP vs B + LB + B/LB | Validation chromosomes only |
 | `ClinVar.251103.BvsP` | Pathogenic vs Benign (strict) | Validation chromosomes only |
-| `ClinVar.260309only.BLBvsPLP` | Pathogenic/LP vs Benign/LB | All chromosomes |
-| `ClinVar.260309only.BvsP` | Pathogenic vs Benign (strict) | All chromosomes |
+| `ClinVar.260923only.BLBvsPLP` | P + LP + P/LP vs B + LB + B/LB | Validation chromosomes only (variants new since 251103) |
+| `ClinVar.260923only.BvsP` | Pathogenic vs Benign (strict) | Validation chromosomes only (variants new since 251103) |
 
 The `BvsP` datasets are strict subsets of their parent `BLBvsPLP` datasets and
 reuse the same score files — no re-scoring is needed. Filtering to P+B variants
@@ -157,7 +157,7 @@ plots under `eval_all/`. Add `--skip_merge` to re-run evaluation only
 **Results layout:**
 ```
 results/predictions/
-├── ClinVar.260309only.BLBvsPLP/
+├── ClinVar.260923only.BLBvsPLP/
 │   ├── GLM-Missense.tsv
 │   ├── zeroshot_NT2_seq12k.tsv
 │   ├── zeroshot_CaduceusPS_seq30k.tsv
@@ -166,7 +166,7 @@ results/predictions/
 │   ├── merged.tsv
 │   └── eval_all/
 │
-└── ClinVar.260309only.BvsP/
+└── ClinVar.260923only.BvsP/
     ├── merge_config.tsv          ← points at BLBvsPLP score files
     ├── merged.tsv
     └── eval_all/                 ← evaluated with --subset BvsP_ids.tsv
@@ -306,7 +306,7 @@ and other genomic features of this subset relative to all other variants.
 
 ```bash
 python evaluation/glmmissense_correct_analysis_for_fig6.py \
-    --input   results/predictions/ClinVar.260309only.BLBvsPLP/merged_prediction_labels_all.tsv \
+    --input   results/predictions/ClinVar.260923only.BLBvsPLP/merged_prediction_labels_all.tsv \
     --outdir  results/figures/fig6
 ```
 
@@ -340,7 +340,7 @@ own-background within method. n is annotated under every box.
 
 ```bash
 python evaluation/multi_method_rescue_own_background.py \
-  --merged-set results/predictions/ClinVar.260309only.BLBvsPLP/merged_prediction_labels_all_overlap.tsv \
+  --merged-set results/predictions/ClinVar.260923only.BLBvsPLP/merged_prediction_labels_all_overlap.tsv \
   --out-dir evaluation/results/multi_method_rescue_ownbg \
   --le-threshold 2 \
   --no-spliceai

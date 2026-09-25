@@ -24,7 +24,7 @@ Usage:
 
     # Single file
     python evaluation/annotate_grantham.py \
-        --input results/predictions/ClinVar_260309only.testset/merged.tsv
+        --input results/predictions/ClinVar_260923only.testset/merged.tsv
 
     # Custom radical threshold
     python evaluation/annotate_grantham.py \

@@ -12,23 +12,23 @@ likely_pathogenic and likely_benign variants.
 Usage:
     # Default: pathogenic + benign (P+B)
     python evaluation/00_extract_subset_ids.py \
-        --dataset ClinVar.260309only \
+        --dataset ClinVar.260923only \
         --datadir data/sequences \
-        --outfile data/sequences/ClinVar.260309only.pb_ids.tsv
+        --outfile data/sequences/ClinVar.260923only.pb_ids.tsv
 
     # Likely pathogenic + likely benign
     python evaluation/00_extract_subset_ids.py \
-        --dataset  ClinVar.260309only \
+        --dataset  ClinVar.260923only \
         --datadir  data/sequences \
         --labels   likely_pathogenic likely_benign \
-        --outfile  data/sequences/ClinVar.260309only.plpblb_ids.tsv
+        --outfile  data/sequences/ClinVar.260923only.plpblb_ids.tsv
 
     # All four classes (produces an IDs file covering everything)
     python evaluation/00_extract_subset_ids.py \
-        --dataset  ClinVar.260309only \
+        --dataset  ClinVar.260923only \
         --datadir  data/sequences \
         --labels   pathogenic likely_pathogenic benign likely_benign \
-        --outfile  data/sequences/ClinVar.260309only.all_ids.tsv
+        --outfile  data/sequences/ClinVar.260923only.all_ids.tsv
 """
 
 import argparse
@@ -48,7 +48,7 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=__doc__)
     p.add_argument("--dataset",   required=True,
-                   help="Dataset name, e.g. ClinVar.260309only")
+                   help="Dataset name, e.g. ClinVar.260923only")
     p.add_argument("--datadir",   default="data/sequences",
                    help="Directory containing per-class TSV files (default: data/sequences)")
     p.add_argument("--labels",    nargs="+", default=DEFAULT_LABELS,
