@@ -11,3 +11,4 @@ scoring/GLM-Missense.pt
 **/__pycache__/
 *.pyc
 *.pyo
+analysis/reviewer/
