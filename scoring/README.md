@@ -15,7 +15,7 @@ scoring/
 ├── annotate_dbnsfp.py               # Annotate variants with all dbNSFP scores via tabix
 ├── prepare_metamissense_input.py    # Prepare input for MetaMissense (fetch + merge predictor scores)
 ├── MetaMissense.py                  # Score variants with the MetaMissense ensemble model
-└── MetaMissense.joblib              # Ensemble model weights
+└── MetaMissense.joblib              # Ensemble model (XGBoost)
 ```
 
 ---
@@ -134,30 +134,29 @@ stdout but not written to the output file.
 
 # MetaMissense
 
-An **ensemble model** that stacks the GLM-Missense score with six established
-predictors (AlphaMissense, ESM1b, REVEL, CADD, PolyPhen-2, SIFT) using a
-trained stacking classifier.
+An **XGBoost ensemble** of GLM-Missense and the seven missense predictors calibrated by ClinGen for the ACMG/AMP
+PP3 / BP4 criteria (Bergquist et al. 2025, Table 1): BayesDel (no AF), MutPred2, REVEL, VEST4, AlphaMissense, ESM1b
+and VARITY_R. It was trained on the later-release ClinVar training variants with all eight scores (chromosomes other
+than 2, 3, 16, 17; n = 10,476) with hyperparameters chosen by chromosome-exclusive 5-fold cross-validation (Methods
+5.10). `MetaMissense.joblib` is the model saved by `analysis/core.py` (`results/analysis/models/bergquist/MetaMissense.joblib`).
 
 `MetaMissense_score` is a probability (0–1) of a variant belonging to the
-pathogenic/likely pathogenic class. As with GLM-Missense, scores ≥ 0.5
-are predicted pathogenic/likely pathogenic and scores below 0.5 are predicted
-benign/likely benign.
+pathogenic/likely pathogenic class.
 
 ---
 
 ## Step 1 — Prepare predictor scores as MetaMissense input
 
-MetaMissense requires the GLM-Missense score plus six predictor scores from
-external sources: `AlphaMissense_score`, `ESM1b_score`, `REVEL_score`,
-`CADD_phred`, `Polyphen2_HVAR_score`, and `SIFT_score`.
+MetaMissense requires the GLM-Missense score plus seven predictor scores, read from these columns (dbNSFP 5.3.1a
+names): `BayesDel_noAF_score`, `MutPred2_score`, `REVEL_score`, `VEST4_score`, `AlphaMissense_score`, `ESM1b_score`
+and `VARITY_R_LOO_score`. `MetaMissense.py` negates `ESM1b_score` (lower = more pathogenic) as in training.
 
 We provide `prepare_metamissense_input.py` as a convenience wrapper that
 fetches these scores from dbNSFP and merges them with your GLM-Missense
 output into a single input file. If you already have these scores from
 another source, you can skip this wrapper and format them manually — just
-make sure the column names match those listed above. If your column names
-differ, update the `input_aliases` dict at the top of `MetaMissense.py`
-accordingly.
+make sure the column names match those listed above (or edit `INPUTS` at the
+top of `MetaMissense.py`).
 
 **Using the wrapper (recommended):**
 
@@ -196,7 +195,8 @@ python scoring/MetaMissense.py \
 
 Output is written to `results/scoring/MetaMissense.tsv`. The output adds a
 `MetaMissense_score` column immediately after `GLM-Missense_score`. Rows
-where any of the six required predictor scores is missing will receive `NaN`.
+where any of the eight input scores is missing receive `NaN` (missing scores
+are not imputed).
 
 ---
 

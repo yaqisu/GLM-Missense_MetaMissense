@@ -7,8 +7,7 @@ Prepare the input table required by MetaMissense.py by:
   2. Merging the resulting dbnsfp.tsv with the GLM-Missense score file
 
 Both steps take the GLM-Missense score TSV as the single starting point.
-The merged output contains all dbNSFP columns plus the GLM-Missense_score,
-which MetaMissense.py expects as 'finetune_NT2_score' (aliased automatically).
+The merged output contains all dbNSFP columns plus the GLM-Missense_score.
 
 Usage:
     python scoring/prepare_metamissense_input.py \\
@@ -20,9 +19,10 @@ Output files written to --outdir:
     dbnsfp.tsv              all dbNSFP annotations (from annotate_dbnsfp.py)
     MetaMissense_input.tsv  merged GLM-Missense + dbNSFP columns
 
-The MetaMissense model only uses six columns from dbNSFP:
-    AlphaMissense_score, ESM1b_score, REVEL_score,
-    CADD_phred, SIFT_score, Polyphen2_HVAR_score
+The MetaMissense model uses seven columns from dbNSFP (the predictors calibrated by
+ClinGen for PP3 / BP4, Bergquist et al. 2025):
+    BayesDel_noAF_score, MutPred2_score, REVEL_score, VEST4_score,
+    AlphaMissense_score, ESM1b_score, VARITY_R_LOO_score
 
 All other dbNSFP columns are retained in the output so you can use them
 for your own downstream analyses without re-running the annotation step.

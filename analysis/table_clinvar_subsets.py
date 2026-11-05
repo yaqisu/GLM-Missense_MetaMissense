@@ -6,7 +6,7 @@ used, by ClinVar class, with the same filters as the figures (core.py, fig_vus.p
   MetaMissense training      later-release training variants with every MetaMissense input (base + GLM-Missense)
   Ablation / benchmarking    core.DALL: training and test variants with every score of the ClinVar figures
                              (core.FIGURE_SCORES)
-                             check: the same with Evo 2 also required (it was once a figure score; logged only)
+                             check: the same with Evo 2 also required (logged only)
   VUS                        held-out VUS on the test chromosomes (all); with base, GLM-Missense and ESM1b-FT
                              (core.VUS_SCORES); the fig7 set (+ SpliceAI, the six ΔCSC sets and Saluki)
 Class: the clinvar_class column of the ClinVar main tables (prep_main_table.py), or, if absent, the class BEDs of the

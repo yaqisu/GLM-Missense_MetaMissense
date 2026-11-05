@@ -16,7 +16,7 @@
 # Example:
 #   ./process_clinvar.sh \
 #       -t clinvar_20251103,clinvar_20260923 \
-#       -b /h/jenniferlin/Programs/bcftools/bin/bcftools
+#       -b /path/to/bcftools
 # =============================================================================
 
 # -----------------------------------------------------------------------------

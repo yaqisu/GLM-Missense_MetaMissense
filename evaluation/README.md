@@ -1,374 +1,86 @@
 # Evaluation
 
-This directory contains the full pipeline for reproducing the evaluation results
-in the paper. The pipeline takes GLM-Missense scores as input, annotates variants
-with additional predictors and genomic features, and produces all figures and
-tables reported in the paper.
+Figures of model development: how GLM-Missense was built (Figs 2, 3; Figs S2–S7, S10; Table S1). The training runs
+are in `training/`; this folder draws their results and compares GLM-Missense with zero-shot NT-2. The analyses of
+what GLM-Missense adds to established predictors (Figs 4–7, S8, S9, S11–S14) are in `analysis/`.
 
-> Run all commands from the **repo root**.
-
----
-
-## Directory layout
-
-```
-evaluation/
-│
-│   ── Orchestration ──
-├── pipeline_config.tsv             # Single config driving prepare_scores + run_evaluation
-├── prepare_scores.py               # Step 1 — zero-shot scoring + dbNSFP annotation
-├── run_evaluation.py               # Step 2 — merge all scores + baseline evaluation
-│
-│   ── Core pipeline scripts ──
-├── merge.py                        # Merge all score files into one wide TSV
-├── evaluate.py                     # AUROC / AUPRC evaluation (full / filter / stratify modes)
-├── extract_subset_ids.py           # Extract variant IDs for a label subset (e.g. P+B only)
-│
-│   ── Zero-shot scoring ──
-├── zeroshot_nt.py                  # Zero-shot NT-1 / NT-2 scoring (6-mer tokenization)
-├── zeroshot_caduceus.py            # Zero-shot Caduceus-PS / Ph scoring (single-char tokenization)
-│
-│   ── Annotation enrichment ──
-├── annotate_spliceai.py            # Add SpliceAI delta scores
-├── annotate_constraint.py          # Add gnomAD v4.1 LOEUF / pLI per gene
-├── annotate_grantham.py            # Add Grantham distance + radical AA change flag (hardcoded)
-├── annotate_exon_boundaries.py     # Add distance to nearest exon boundary
-├── prepare_exon_boundaries.py      # Parse Ensembl GTF → exon parquet (run once)
-│
-│   ── Figure analyses ──
-├── evaluate_partial_correlation.py            # Fig 4B     — partial Spearman r controlling for other methods
-├── plot_feature_importance.py                 # Fig 4C     — XGBoost permutation feature importance
-├── plot_cv_results.py                         # Fig 5AB    — cross-validation AUROC and AUPRC
-├── label_prediction_sets.py                   # Fig 6 prep — binary labels + correctness flags per method
-├── glmmissense_correct_analysis_for_fig6.py   # Fig 6      — GLM-Missense-correct subset analysis
-├── frozen_model_comparison.py                 # Fig S2     — frozen backbone comparison (NT-2, NT-1, Caduceus)
-└── plot_training_curves.py                    # Fig S4     — training and validation curves
-└── multi_method_resolved_vs_own_background.py # Fig S8     — method resolved variants
-│
-└── core/                           # Shared library (metrics, filters, plots)
-    ├── metrics.py
-    ├── filters.py
-    ├── plots.py
-    └── __init__.py
-```
+Every command runs from the **repo root**. Figures are written to `results/evaluation/figures/<figure>.pdf`
+(editable text, Arial) and `.png`.
 
 ---
 
-## Pipeline overview
+## Figures
 
-```
-[scoring/] GLM-Missense.tsv
-        │
-        ▼
-[Step 1] prepare_scores.py
-         ├── scoring/GLM-Missense.py       fine-tuned scoring (called externally)
-         ├── zeroshot_nt.py × 3            NT-2 seq12k, NT-2 seq6k, NT-1 seq6k
-         ├── zeroshot_caduceus.py × 2      Caduceus-PS seq30k, Caduceus-Ph seq30k
-         └── scoring/annotate_dbnsfp.py    all dbNSFP columns (called from scoring/)
-        │
-        ▼
-[Step 2] run_evaluation.py
-         ├── merge.py                      merge all score files → merged.tsv
-         └── evaluate.py                   AUROC / AUPRC → eval_all/
-        │
-        ▼
-[Step 3] Annotation enrichment             (all edit merged.tsv in place)
-         ├── annotate_spliceai.py          SpliceAI delta scores
-         ├── annotate_constraint.py        LOEUF / pLI from gnomAD v4.1
-         ├── annotate_grantham.py          Grantham distance (hardcoded)
-         └── annotate_exon_boundaries.py   distance to nearest exon boundary
-        │
-        ▼
-[Step 4] Figure analyses
-        ├── evaluate_partial_correlation.py            Fig 4B
-        ├── plot_feature_importance.py                 Fig 4C
-        ├── plot_cv_results.py                         Fig 5AB
-        ├── label_prediction_sets.py                   Fig 6 prep
-        ├── glmmissense_correct_analysis_for_fig6.py   Fig 6
-        ├── frozen_model_comparison.py                 Fig S2
-        ├── plot_training_curves.py                    Fig S4
-        └── multi_method_resolved_vs_own_background.py Fig S8
-> Some figures are generated inline by earlier pipeline steps or assembled manually and are not listed here.
-
----
-
-## Datasets
-
-Four ClinVar datasets are evaluated:
-
-| Dataset key | Variant classes | Split |
+| Figure | Script | Reads |
 |---|---|---|
-| `ClinVar.251103.BLBvsPLP` | P + LP + P/LP vs B + LB + B/LB | Validation chromosomes only |
-| `ClinVar.251103.BvsP` | Pathogenic vs Benign (strict) | Validation chromosomes only |
-| `ClinVar.260923only.BLBvsPLP` | P + LP + P/LP vs B + LB + B/LB | Validation chromosomes only (variants new since 251103) |
-| `ClinVar.260923only.BvsP` | Pathogenic vs Benign (strict) | Validation chromosomes only (variants new since 251103) |
-
-The `BvsP` datasets are strict subsets of their parent `BLBvsPLP` datasets and
-reuse the same score files — no re-scoring is needed. Filtering to P+B variants
-happens at evaluation time via `--subset`.
-
----
-
-## Step 1 — Prepare scores
-
-Runs zero-shot scoring and dbNSFP annotation for all source datasets. All steps
-skip gracefully if output already exists — safe to rerun after interruption.
-
-```bash
-python evaluation/prepare_scores.py \
-    --config  evaluation/pipeline_config.tsv \
-    --model   scoring/GLM-Missense.pt \
-    --dbnsfp  data/dbnsfp/dbNSFP5.3.1a_grch38.gz
-```
-
-For each source dataset this runs, in order: GLM-Missense scoring, five
-zero-shot models (NT-2 seq12k, NT-2 seq6k, NT-1 seq6k, Caduceus-PS seq30k,
-Caduceus-Ph seq30k), and dbNSFP annotation via `scoring/annotate_dbnsfp.py`.
-For derived (`reuse:`) rows, only the subset ID file is generated.
-
-Add `--dry_run` to preview all commands without executing.
-
-> **Note on dbNSFP:** `annotate_dbnsfp.py` lives in `scoring/` and is called
-> from there. If you have already run it for the MetaMissense pipeline on the
-> same variants, you can copy the resulting `dbnsfp.tsv` into
-> `results/predictions/{dataset}/` and the step will be skipped automatically.
+| Fig 1 | — (schematic) | — |
+| Fig 2A | **[TBA-E1]** | frozen-backbone runs (`training/`) |
+| Fig 2B | **[TBA-E2]** | local-window pooling runs |
+| Fig 3A | **[TBA-E3]** | LoRA model-selection runs |
+| Fig 3B | **[TBA-E4]** | allele-aware input runs |
+| Fig S2 | `frozen_model_comparison.py` | `results/frozen_results.tsv` (**[TBA-E1]**) |
+| Fig S3 | **[TBA-E2]** | local-window pooling runs |
+| Fig S4 | **[TBA-E5]** | LoRA vs full fine-tuning runs |
+| Fig S5 | **[TBA-E4]** | allele-aware input runs |
+| Fig S6 | `plot_training_curves.py` | `results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv` |
+| Fig S7 | `zeroshot_nt.py` → `fig_zeroshot.py` | GLM-Missense and zero-shot NT-2 scores of the held-out test set |
+| Fig S10 | **[TBA-E7]** | ESM1b-FT training metrics (`training/`, **[TBA-T2]**) |
+| Table S1 | **[TBA-E6]** | 5-fold CV runs (`training/NT2_ranked_cv.py`) |
 
 ---
 
-## Step 2 — Merge and evaluate
+## Fig S7 — GLM-Missense vs zero-shot NT-2
 
-Merges all score files and runs the baseline AUROC / AUPRC evaluation for every
-dataset in `pipeline_config.tsv`.
+Zero-shot NT-2: masked marginal log-likelihood ratio of the pretrained NT-2 on the same 11,999-bp window,
+`sigmoid(−[log P(alt) − log P(ref)])` (Methods 5.6).
 
 ```bash
-python evaluation/run_evaluation.py \
-    --config evaluation/pipeline_config.tsv
+D=results/predictions/ClinVar.260923only.BLBvsPLP
+S=data/splits/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP
+# GLM-Missense scores of the held-out test set (scoring/README.md)
+python scoring/GLM-Missense.py --input ${S}_validation.tsv --model scoring/GLM-Missense.pt --outdir $D
+# zero-shot NT-2 (GPU)
+python evaluation/zeroshot_nt.py --input ${S}_validation.tsv --output $D/zeroshot_NT2_seq12k.tsv \
+    --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species --gpu 0
+# figure: results/evaluation/figures/figS7.{pdf,png,tsv}
+python evaluation/fig_zeroshot.py
 ```
 
-For each dataset this auto-generates `merge_config.tsv` from whatever `.tsv`
-files are present in the predictions directory, runs `merge.py` to produce
-`merged.tsv`, then runs `evaluate.py` to produce AUROC / AUPRC tables and
-plots under `eval_all/`. Add `--skip_merge` to re-run evaluation only
-(useful when `merged.tsv` already exists). Add `--dry_run` to preview.
+`zeroshot_nt.py` on the training split (`--input ${S}_training.tsv --output ${D}_train/zeroshot_NT2_seq12k.tsv`)
+gives the `NT2-ZS` column of the training main table (`analysis/prep_main_table.py`).
 
-> `merge_config.tsv` is always regenerated — do not hand-edit it. To include
-> or exclude a model, add or remove its score file from the predictions directory.
+## Fig S2 and Fig S6
 
-**Results layout:**
-```
-results/predictions/
-├── ClinVar.260923only.BLBvsPLP/
-│   ├── GLM-Missense.tsv
-│   ├── zeroshot_NT2_seq12k.tsv
-│   ├── zeroshot_CaduceusPS_seq30k.tsv
-│   ├── dbnsfp.tsv
-│   ├── merge_config.tsv          ← auto-generated
-│   ├── merged.tsv
-│   └── eval_all/
-│
-└── ClinVar.260923only.BvsP/
-    ├── merge_config.tsv          ← points at BLBvsPLP score files
-    ├── merged.tsv
-    └── eval_all/                 ← evaluated with --subset BvsP_ids.tsv
+```bash
+python evaluation/frozen_model_comparison.py      # Fig S2 -> results/evaluation/figures/figS2.{pdf,png}
+python evaluation/plot_training_curves.py         # Fig S6 -> results/evaluation/figures/figS6.{pdf,png}
 ```
 
 ---
 
-## Step 3 — Annotation enrichment
+## To be added
 
-These four scripts add annotation columns to every `merged.tsv` in place. Run
-them in any order after Step 2. All are idempotent — re-running drops and
-re-adds their columns.
+Each item: the script that draws the figure from the `training/` run folders (named in `training/README.md`,
+**[TBA-T1]**), writing `results/evaluation/figures/<figure>.{pdf,png}`, and a row in the table above.
 
-### 3a. SpliceAI scores
+> **[TBA-E1] Fig 2A (frozen backbones).** Best validation AUROC of every frozen-backbone configuration (NT-2, NT-1,
+> Caduceus-PS × heads × embeddings). Also: how `results/frozen_results.tsv` (the input of Fig S2) is compiled from the
+> runs' `training_metrics.csv` files.
 
-```bash
-python evaluation/annotate_spliceai.py \
-    --spliceai data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz \
-    --predictions_dir results/predictions
-```
+> **[TBA-E2] Fig 2B and Fig S3 (local-window pooling).** Validation AUROC by window size (Fig 2B) and training /
+> validation AUROC and AUPRC curves of the ±8, ±16, ±32-token runs (Fig S3).
 
-Requires the raw SNV VCF bgzipped and tabix-indexed (`tabix -p vcf ...`).
-Columns added: `spliceai_DS_AG`, `spliceai_DS_AL`, `spliceai_DS_DG`,
-`spliceai_DS_DL`, `spliceai_DS_max`, `spliceai_gene`.
+> **[TBA-E3] Fig 3A (LoRA model selection).** Validation AUROC and AUPRC of the 54 LoRA configurations, ordered by
+> mean rank. The same ranking is the `--ranking_json` input of `training/NT2_ranked_cv.py`.
 
-### 3b. gnomAD constraint (LOEUF / pLI)
+> **[TBA-E4] Fig 3B and Fig S5 (allele-aware inputs).** Validation performance of alt, ref-alt and ref-alt-diff
+> (Fig 3B) and their training / validation curves (Fig S5).
 
-```bash
-python evaluation/annotate_constraint.py \
-    --constraint    data/loeuf/gnomad.v4.1.constraint_metrics.tsv \
-    --predictions_dir results/predictions
-```
+> **[TBA-E5] Fig S4 (LoRA vs full fine-tuning).** Training and validation AUROC / AUPRC of the top LoRA run and the
+> five full fine-tuning runs.
 
-Joins on gene name (canonical transcripts only). Columns added: `lof.oe_ci.upper`
-(LOEUF), `lof.pLI`, `lof.oe`, `lof.obs`, `lof.exp`, `mis.z_score`, `mis.oe`,
-`lof.oe_ci.upper_bin_decile`.
+> **[TBA-E6] Table S1.** Mean and standard error over the five chromosome-exclusive folds of the top 10 LoRA
+> configurations (`training/NT2_ranked_cv.py` output).
 
-### 3c. Grantham distance
-
-No external data required — values are hardcoded from Grantham (1974).
-
-```bash
-python evaluation/annotate_grantham.py \
-    --predictions_dir results/predictions
-```
-
-Requires `aaref` and `aaalt` columns (provided by dbNSFP). Columns added:
-`grantham_distance` (0–215 scale), `is_radical_aa_change` (True if distance > 150).
-
-### 3d. Exon boundary distance
-
-First, prepare the exon boundary parquet from an Ensembl GTF (one-time, ~60 sec):
-
-```bash
-python evaluation/prepare_exon_boundaries.py \
-    --gtf    data/annotation/Homo_sapiens.GRCh38.113.gtf.gz \
-    --output data/annotation/exons_GRCh38.113.parquet
-```
-
-Then annotate:
-
-```bash
-python evaluation/annotate_exon_boundaries.py \
-    --exons data/annotation/exons_GRCh38.113.parquet \
-    --predictions_dir results/predictions
-```
-
-Columns added: `exon_boundary_dist`, `exon_boundary_5prime`,
-`exon_boundary_3prime`, `near_exon_boundary`, `exon_boundary_bin`.
-
----
-
-## Step 4 — Figure analyses
-
-These scripts reproduce the main paper figures. Steps 4d (label_prediction_sets)
-must be run before 4e, as those depend on its output. All other steps
-are standalone.
-
-Reads `results/frozen_results.tsv`. Outputs `results/figures/frozen_model_comparison.pdf/png`.
-
-### 4a. Partial correlation analysis  *(Fig 4B)*
-
-Computes partial Spearman r for each predictor controlling for all others,
-quantifying the unique predictive signal each method contributes.
-
-```bash
-python evaluation/evaluate_partial_correlation.py
-```
-
-Outputs `partial_correlation_results.tsv` and `partial_correlation.pdf/png`
-alongside each `merged.tsv`.
-
-### 4b. XGBoost feature importance  *(Fig 4C)*
-
-Plots permutation feature importance (mean AUPRC decrease) for the MetaMissense
-XGBoost ensemble.
-
-```bash
-python evaluation/plot_feature_importance.py
-```
-
-Reads `results/ensemble/feature_importance.csv`. Outputs `results/figures/fig_feature_importance.pdf/png`.
-
-### 4c. Cross-validation results  *(Fig 5AB)*
-
-Plots cross-validation AUROC and AUPRC for all methods with a significance
-bracket between MetaMissense and REVEL.
-
-```bash
-python evaluation/plot_cv_results.py
-```
-
-Reads `results/ensemble/cv_results.tsv`. Outputs `results/figures/fig_cv_results.pdf/png`.
-
-### 4d. Binary prediction labels and correctness flags  *(prerequisite for Figs 6)*
-
-Binarizes each predictor at its standard threshold, adds per-variant
-correctness flags, and generates 7×7 focal-method-correct-while-≤N-others-correct
-indicators. The key column used downstream is `GLM-Missense_correct_le{N}`,
-which flags variants where GLM-Missense is correct and at most N of the other
-six methods are also correct.
-
-```bash
-python evaluation/label_prediction_sets.py \
-    --predictions_dir results/predictions
-```
-
-Outputs per dataset: `merged_prediction_labels_all.tsv` (all variants) and
-`merged_prediction_labels_all_overlap.tsv` (variants with all 7 methods scored).
-
-### 4e. GLM-Missense-correct subset analysis  *(Fig 6)*
-
-Characterises the GLM-Missense-correct subset: variants where GLM-Missense is
-correctly classified and at least four of the other six methods are wrong
-(`GLM-Missense_correct_le2`). Examines mutation spectrum, SpliceAI scores,
-and other genomic features of this subset relative to all other variants.
-
-```bash
-python evaluation/glmmissense_correct_analysis_for_fig6.py \
-    --input   results/predictions/ClinVar.260923only.BLBvsPLP/merged_prediction_labels_all.tsv \
-    --outdir  results/figures/fig6
-```
-
-### 4f. Frozen backbone comparison  *(Fig S2)*
-
-Plots training and validation AUROC curves for all frozen-backbone model
-configurations (NT-2, NT-1, Caduceus) across classifier heads and embedding
-strategies.
-
-```bash
-python evaluation/frozen_model_comparison.py
-```
-
-### 4g. Training curves  *(Fig S4)*
-
-Plots training and validation AUROC/AUPRC curves with early stopping annotation
-for the best GLM-Missense model.
-
-```bash
-python evaluation/plot_training_curves.py
-```
-
-Reads `results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv`.
-Outputs `results/figures/fig_training_curve.pdf/png`.
-
-### 4h. Method-resolved vs background  *(Fig S8)*
-
-Plots  each method's resolved variants against its own background, with
-Mann-Whitney (or Fisher exact for the radical-AA panel) testing rescue vs
-own-background within method. n is annotated under every box.
-
-```bash
-python evaluation/multi_method_rescue_own_background.py \
-  --merged-set results/predictions/ClinVar.260923only.BLBvsPLP/merged_prediction_labels_all_overlap.tsv \
-  --out-dir evaluation/results/multi_method_rescue_ownbg \
-  --le-threshold 2 \
-  --no-spliceai
-```
-
-> Some figures are generated inline by earlier pipeline steps or assembled manually and are not listed here.
-
----
-
-## Data requirements
-
-| Data | Used by | Where to obtain |
-|---|---|---|
-| dbNSFP v5.x GRCh38 (bgzipped + tabix index) | `scoring/annotate_dbnsfp.py` | dbNSFP project page |
-| gnomAD v4.1 constraint metrics TSV | `annotate_constraint.py` | gnomad.broadinstitute.org |
-| SpliceAI raw SNV VCF hg38 (bgzipped + tabix index) | `annotate_spliceai.py` | Illumina BaseSpace |
-| Ensembl GRCh38 GTF (any recent release) | `prepare_exon_boundaries.py` | Ensembl FTP |
-
----
-
-## pipeline_config.tsv columns
-
-| Column | Description |
-|---|---|
-| `dataset_key` | Unique name; determines output folder under `results/predictions/` |
-| `seq12k_input` | Path to seq12k TSV, or `reuse:{parent_key}` for derived datasets, or `premerged:{path}` to skip scoring and merge |
-| `seq6k_input` | Path to seq6k TSV (NT zero-shot only) |
-| `seq30k_input` | Path to seq30k TSV (Caduceus zero-shot only) |
-| `finetune_score` | Output path for GLM-Missense score file |
-| `subset_ids` | Path to BvsP IDs file for derived datasets |
-| `gpu` | GPU ID for scoring |
+> **[TBA-E7] Fig S10 (ESM1b-FT training curves).** As Fig S6, for the ESM1b-FT run (best step 3,000). If the ESM1b-FT
+> metrics file has the columns of the GLM-Missense `training_metrics.csv`, `plot_training_curves.py` can take its path.

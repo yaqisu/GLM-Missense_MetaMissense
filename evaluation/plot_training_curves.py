@@ -1,8 +1,9 @@
 """
-Plot train and validation AUROC curves up to the early stopping point.
+Fig S6: training and validation AUROC / AUPRC of the GLM-Missense run, up to the early stopping point.
 
 Input:  results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv
-Output: results/figures/fig_training_curve.pdf  (and .png)
+        (training/runs.sh)
+Output: results/evaluation/figures/figS6.pdf  (and .png)
 
 Run from project root:
     python evaluation/plot_training_curves.py
@@ -21,11 +22,12 @@ import matplotlib.font_manager as _fm
 import os as _os
 
 # Register Arial from a user-writable directory — no conda env write access needed
-_user_font_dir = "../fonts/"
-if _os.path.isdir(_user_font_dir):
-    for _f in _os.listdir(_user_font_dir):
-        if _f.lower().endswith(".ttf") or _f.lower().endswith(".otf"):
-            _fm.fontManager.addfont(_os.path.join(_user_font_dir, _f))
+# ARIAL_DIR, else a fonts/ folder next to the repo
+for _d in [_os.environ.get("ARIAL_DIR", ""), _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "fonts")]:
+    if _d and _os.path.isdir(_d):
+        for _f in _os.listdir(_d):
+            if _f.lower().endswith(".ttf") or _f.lower().endswith(".otf"):
+                _fm.fontManager.addfont(_os.path.join(_d, _f))
 
 matplotlib.rcParams.update({
     "font.family":       "sans-serif",
@@ -37,7 +39,7 @@ matplotlib.rcParams.update({
 
 # ── Config ────────────────────────────────────────────────────────────────────
 INPUT_CSV = "results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv"
-OUTPUT_DIR = "results/figures"
+OUTPUT_DIR = "results/evaluation/figures"
 PATIENCE   = 2          # early stopping patience (in eval steps)
 
 # ── Load data ─────────────────────────────────────────────────────────────────
@@ -104,7 +106,7 @@ plt.tight_layout()
 # ── Save ──────────────────────────────────────────────────────────────────────
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 for ext in ("pdf", "png"):
-    out_path = os.path.join(OUTPUT_DIR, f"fig_training_curve.{ext}")
+    out_path = os.path.join(OUTPUT_DIR, f"figS6.{ext}")
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     print(f"Saved: {out_path}")
 

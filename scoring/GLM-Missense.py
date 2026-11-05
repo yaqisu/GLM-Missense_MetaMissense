@@ -18,10 +18,10 @@ The label column is optional — if present, AUC will also be computed.
 
 Output TSV columns:
     variant_id  chromosome  position  ref_allele  alt_allele
-    pathogenicity_score  predicted_label
+    GLM-Missense_score  [true_label]
 
-    pathogenicity_score : sigmoid probability (0-1), higher = more pathogenic
-    predicted_label     : 0 (benign) or 1 (pathogenic) at threshold (default 0.5)
+    GLM-Missense_score : sigmoid probability (0-1), higher = more pathogenic
+    true_label         : copied from the input label column, if present
 
 Usage:
     python scoring/score_variants.py \
@@ -415,8 +415,9 @@ Example:
                     'ref_allele', 'alt_allele']].copy()
     output_df['GLM-Missense_score'] = scores
 
-    # If labels present, compute AUC
+    # If labels present, keep them as true_label and compute AUC
     if 'label' in df.columns:
+        output_df['true_label'] = df['label'].values
         from sklearn.metrics import roc_auc_score
         auc = roc_auc_score(df['label'], scores)
         logger.info(f"AUC on labeled data: {auc:.4f}")

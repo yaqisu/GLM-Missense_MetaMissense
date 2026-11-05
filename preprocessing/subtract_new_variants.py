@@ -11,10 +11,10 @@ Variants that existed in 251103 but not in its BEDs (e.g. VUS, conflicting) are 
 they were never used for training or validation.
 
 Output: data/bed/ClinVar.260923only.missense.hg38.{class}.bed (same 6-column format).
-These are split by generate_datasets.sh with the same fixed chromosome assignment as
-251103 (split_data_fixed_chroms.py):
-  train chromosomes -> *_training.tsv   (new variants in genes seen during training)
-  val chromosomes   -> *_validation.tsv (held-out test set: no genes shared with training)
+These are split by generate_datasets.sh with the held-out chromosomes of GLM-Missense
+training (split_data_fixed_chroms.py, held-out set glm_missense = chr 2, 3, 16, 17):
+  other chromosomes -> *_training.tsv   (ensemble training set)
+  chr 2, 3, 16, 17  -> *_validation.tsv (held-out test set: no genes shared with training)
 
 Prints class x split counts, the 251103 -> 260923 reclassification table, and a
 gene-overlap audit (when both missense VCFs are present in data/vcf/).

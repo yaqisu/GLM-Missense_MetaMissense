@@ -10,13 +10,14 @@ and adds, matched on variant_id unless noted:
   split                  test (held-out chr 2, 3, 16, 17) or train
   ESM1b-FT_score         ESM1b-FT table, matched on chromosome / position / ref / alt
   NT2-ZS_score, NT2-ZS_llr   zero-shot NT-2 (evaluation/zeroshot_nt.py): sigmoid(-LLR) and LLR
-  random_baseline_score  results/scores/random_baseline.tsv (Uniform(0, 1), seed 2026, created once)
+  random_baseline_score  results/scores/random_baseline.tsv (prep_random_baseline.py: Uniform(0, 1), seed 2026)
 Sequence columns (ref_sequence / alt_sequence) are dropped. Nothing else is changed: values are
 read and written as text, so dbNSFP '.' and multi-value fields stay as they are.
 
 Output: results/analysis/prep/main_table/ClinVar.260923only.BLBvsPLP_{test,train}.main.tsv + manifest_{split}.json.
-ESCOTT, AlphaGenome AVI and Evo 2 were then added to these tables; the annotated copies are the analysis inputs in
-results/annotated/clinvar/ (copy_inputs.sh). Score coverage: python analysis/core.py.
+The figures read these tables from results/annotated/clinvar/ (copy them there, or pass
+--outdir results/annotated/clinvar). Inputs and how they are made: analysis/README.md, "ClinVar main tables".
+Score coverage: python analysis/core.py.
 
 Usage (repo root):
     python analysis/prep_main_table.py --split test

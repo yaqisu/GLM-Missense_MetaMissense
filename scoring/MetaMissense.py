@@ -1,121 +1,77 @@
+#!/usr/bin/env python3
+"""
+MetaMissense.py — score variants with the MetaMissense ensemble.
+
+MetaMissense is an XGBoost ensemble of GLM-Missense and the seven predictors calibrated by ClinGen for PP3 / BP4
+(Bergquist et al. 2025, Table 1): BayesDel (no AF), MutPred2, REVEL, VEST4, AlphaMissense, ESM1b and VARITY_R.
+The model file (MetaMissense.joblib) holds {'model', 'features', 'params'}; 'features' are the method names below,
+in the order the model expects. Scores are oriented so that higher = more pathogenic (ESM1b is negated), as in
+training. A variant missing any input score gets NaN (missing scores are never imputed).
+
+Usage (repo root):
+    python scoring/MetaMissense.py --input results/scoring/MetaMissense_input.tsv \\
+        --model scoring/MetaMissense.joblib --outdir results/scoring
+Output: <outdir>/MetaMissense.tsv = the input table + MetaMissense_score (after GLM-Missense_score).
+"""
 import argparse
-import pandas as pd
-import numpy as np
-import joblib
+import os
 import sys
 
-parser = argparse.ArgumentParser(
-    description='Predict MetaMissense scores using a saved ensemble model')
-parser.add_argument('--input',  '-i', required=True,
-                    help='Input TSV (output of prepare_metamissense_input.py)')
-parser.add_argument('--model',  '-m', required=True,
-                    help='Path to saved MetaMissense model (.joblib)')
-parser.add_argument('--outdir', '-o', required=True,
-                    help='Output directory; MetaMissense.tsv is written here')
-args = parser.parse_args()
+import joblib
+import numpy as np
+import pandas as pd
 
-input_tsv     = args.input
-model_joblib  = args.model
-
-# Column mapping: possible input names -> training feature names
-# We'll match against the model's actual expected features
-input_aliases = {
-    'AlphaMissense_score': 'AlphaMissense_score',
-    'ESM1b_score':          'ESM1b_score',
-    'REVEL_score':          'REVEL_score',
-    'CADD_phred':           'CADD_phred',
-    'SIFT_score':           'SIFT_score',
-    'Polyphen2_HVAR_score': 'Polyphen2_HVAR_score',
-    'GLM-Missense_score':   'GLM-Missense_score',
+# method name in the model -> (input column candidates, negate so that higher = more pathogenic)
+INPUTS = {
+    'GLM-Missense':  (['GLM-Missense_score'], False),
+    'AlphaMissense': (['AlphaMissense_score'], False),
+    'ESM1b':         (['ESM1b_score'], True),
+    'REVEL':         (['REVEL_score'], False),
+    'BayesDel':      (['BayesDel_noAF_score'], False),
+    'MutPred2':      (['MutPred2_score', 'MutPred_score'], False),
+    'VEST4':         (['VEST4_score'], False),
+    'VARITY_R':      (['VARITY_R_LOO_score', 'VARITY_R_score'], False),
 }
 
-# Load model bundle
-bundle = joblib.load(model_joblib)
-model = bundle['model']
-scaler = bundle['scaler']
-train_features = bundle['features']
-print(f'Loaded model: {bundle["classifier"]}')
-print(f'Expected features: {train_features}')
-print(f'Best params: {bundle["best_params"]}')
+ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+ap.add_argument('--input', '-i', required=True, help='Input TSV (output of prepare_metamissense_input.py)')
+ap.add_argument('--model', '-m', required=True, help='MetaMissense model (.joblib)')
+ap.add_argument('--outdir', '-o', required=True, help='Output directory; MetaMissense.tsv is written here')
+args = ap.parse_args()
 
-# Load input data
-df = pd.read_csv(input_tsv, sep='\t', na_values='.')
-print(f'\nLoaded {len(df)} variants from {input_tsv}')
+bundle = joblib.load(args.model)
+model, features = bundle['model'], bundle['features']
+print(f'Loaded {args.model}: features {features}; hyperparameters {bundle.get("params")}')
+unknown = [f for f in features if f not in INPUTS]
+if unknown:
+    sys.exit(f'ERROR: no input column defined for model features {unknown} (INPUTS in {__file__})')
 
-# Build mapping: training feature name -> actual input column name
-# Uses the alias dict, plus case-insensitive fallback
-input_cols_lower = {c.lower(): c for c in df.columns}
-reverse_aliases = {}
-for input_name, train_name in input_aliases.items():
-    reverse_aliases.setdefault(train_name, []).append(input_name)
+df = pd.read_csv(args.input, sep='\t', na_values='.', low_memory=False)
+print(f'Loaded {len(df):,} variants from {args.input}')
 
-feature_to_col = {}
+X = pd.DataFrame(index=df.index)
 missing = []
-for feat in train_features:
-    # Try exact match in input
-    if feat in df.columns:
-        feature_to_col[feat] = feat
+for f in features:
+    cols, negate = INPUTS[f]
+    col = next((c for c in cols if c in df.columns), None)
+    if col is None:
+        missing.append(f'{f} ({" or ".join(cols)})')
         continue
-    # Try known aliases
-    found = False
-    for alias in reverse_aliases.get(feat, []):
-        if alias in df.columns:
-            feature_to_col[feat] = alias
-            found = True
-            break
-        if alias.lower() in input_cols_lower:
-            feature_to_col[feat] = input_cols_lower[alias.lower()]
-            found = True
-            break
-    if found:
-        continue
-    # Case-insensitive fallback on feature name
-    if feat.lower() in input_cols_lower:
-        feature_to_col[feat] = input_cols_lower[feat.lower()]
-        continue
-    missing.append(feat)
-
+    v = pd.to_numeric(df[col].astype(str).str.split(';').str[0], errors='coerce')   # one value per variant
+    X[f] = -v if negate else v
+    print(f'  {f:<14} <- {col}{" (negated)" if negate else ""}')
 if missing:
-    sys.exit(f'ERROR: Cannot find input columns for features: {missing}')
+    sys.exit(f'ERROR: input columns not found: {missing}')
 
-print(f'\nColumn mapping:')
-for feat, col in feature_to_col.items():
-    tag = '' if feat == col else f'  <- "{col}"'
-    print(f'  {feat}{tag}')
-
-# Extract and rename to training feature names
-X = df[[feature_to_col[f] for f in train_features]].copy()
-X.columns = train_features
-
-# Track which rows have complete data
-valid_mask = X.notna().all(axis=1)
-n_missing = (~valid_mask).sum()
-if n_missing > 0:
-    print(f'WARNING: {n_missing} variants have missing scores, '
-          f'MetaMissense_score will be NaN for these')
-
-# Predict
+valid = X.notna().all(axis=1).to_numpy()
 scores = np.full(len(df), np.nan)
-if valid_mask.any():
-    X_valid = X.loc[valid_mask].values.astype(float)
-    if scaler is not None:
-        X_valid = scaler.transform(X_valid)
-    scores[valid_mask] = model.predict_proba(X_valid)[:, 1]
-
-# Add predictions to dataframe
+if valid.any():
+    scores[valid] = model.predict_proba(X.loc[valid, features].to_numpy(float))[:, 1]
 df['MetaMissense_score'] = scores
+if 'GLM-Missense_score' in df.columns:                       # place it right after GLM-Missense_score
+    df.insert(df.columns.get_loc('GLM-Missense_score') + 1, 'MetaMissense_score', df.pop('MetaMissense_score'))
 
-# Move MetaMissense_score to sit immediately after GLM-Missense_score
-if 'GLM-Missense_score' in df.columns:
-    glm_idx = df.columns.tolist().index('GLM-Missense_score')
-    col = df.pop('MetaMissense_score')
-    df.insert(glm_idx + 1, 'MetaMissense_score', col)
-
-# Output
-import os
-output_path = os.path.join(args.outdir, 'MetaMissense.tsv')
 os.makedirs(args.outdir, exist_ok=True)
-
-df.to_csv(output_path, sep='\t', index=False)
-print(f'\nSaved {len(df)} variants to {output_path}')
-print(f'  {valid_mask.sum()} scored, {n_missing} missing')
+out = os.path.join(args.outdir, 'MetaMissense.tsv')
+df.to_csv(out, sep='\t', index=False)
+print(f'Saved {out}: {valid.sum():,} scored, {(~valid).sum():,} with a missing input score (NaN)')

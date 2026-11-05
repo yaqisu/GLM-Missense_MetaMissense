@@ -29,10 +29,7 @@ one task), not the analysis it was first made for.
 # alphagenome: build from scratch
 conda create -n alphagenome python=3.11 -y
 conda activate alphagenome && pip install "alphagenome>=0.9" pandas numpy scipy
-# saluki, either way (CPU only; saluki_score.py needs TensorFlow 2 with Keras 2, i.e. TensorFlow <= 2.15):
-#  (a) the env the VUS Saluki scores were made in (same TensorFlow): see Copied inputs
-conda create -n saluki --clone <path of that env>
-#  (b) from scratch
+# saluki (CPU only; saluki_score.py needs TensorFlow 2 with Keras 2, i.e. TensorFlow <= 2.15):
 conda create -n saluki python=3.11 -y
 conda activate saluki && pip install "tensorflow-cpu==2.15.*" "numpy<2" pandas
 python -c "import tensorflow as tf; print(tf.__version__)"                # 2.15.x
@@ -46,7 +43,7 @@ python -u analysis/scoring/saluki_score.py --input <list.tsv> --limit 5 \
 conda create -n meme -c conda-forge -c bioconda meme=5.5 python=3.11 pandas numpy -y
 conda activate meme && pip install pyjaspar==4.0.0 biopython && fimo --version          # 5.5.x
 # AlphaGenome env under another name: fig_vus.py --ag_env <name>
-# lamar: where it comes from, see Copied inputs. Record each env once, so it can be rebuilt:
+# lamar: the PyTorch env of training/ ([TBA-A6]). Record each env once, so it can be rebuilt:
 mkdir -p analysis/envs
 for e in lamar saluki alphagenome meme; do conda env export -n $e --no-builds > analysis/envs/$e.yml; done
 # rebuild elsewhere: conda env create -n <env> -f analysis/envs/<env>.yml
@@ -63,7 +60,7 @@ export AG_KEY_FILE=$HOME/.alphagenome_api_key        # holds only the key; chmod
 ### 2.1 Copy the inputs made elsewhere
 
 ```bash
-bash analysis/copy_inputs.sh       # any env; copies + logs; files already in place are only logged and checked
+bash analysis/copy_inputs.sh       # any env; sources in analysis/copy_inputs.local.sh; copies + logs
 ```
 
 It fills `results/annotated/` (ClinVar main tables, RAD51D SGE table, held-out VUS table, reference tables of the
@@ -71,8 +68,7 @@ sequence features), `results/scores/vus_alphagenome_live/` (earlier live AlphaGe
 `results/models/ESM1b-FT/` (checkpoint) and `data/external/` (Saluki models, Ensembl GRCh38 release 115 FASTA + GTF),
 appends one line per file to `results/annotated/COPY_LOG.tsv` (date, destination, source, md5, user; "already present"
 when the file was there) and rewrites `results/annotated/MD5SUMS`. It copies with `cp -pn` (keeps timestamps, never
-overwrites) and warns when a file differs from its source. Where every input comes from: **Copied inputs** (last
-section).
+overwrites) and warns when a file differs from its source. How every input is made: **Inputs** (last section).
 
 ### 2.2 Compute the scores
 
@@ -141,7 +137,7 @@ N=50 bash analysis/scoring/run_parallel.sh fimo                               # 
 python analysis/scoring/fimo_score.py --input results/annotated/clinvar/ClinVar.260923only.BLBvsPLP_test.main.tsv \
     --fasta $FASTA --motifs $MOTIFS -o results/scores/clinvar_fimo/fimo_features_test.tsv \
     --annotated results/annotated/clinvar/ClinVar.260923only.BLBvsPLP_test.main.fimo.tsv
-S=results/annotated/sge/RAD51D_missense_dbNSFP_annotated_GLM-Missense_annotated_ESM1b-FT_annotated.spliceai_annot.ESCOTT_annot.tsv
+S=results/annotated/sge/RAD51D_SGE_missense_annotated.tsv
 python analysis/scoring/fimo_score.py --input $S --fasta $FASTA --motifs $MOTIFS \
     -o results/scores/sge_fimo/fimo_features.tsv --annotated ${S%.tsv}.fimo.tsv          # S = core.SGE_FILE
 ```
@@ -220,8 +216,8 @@ command (with `--alphagenome`) whenever a score is recomputed, then rerun the VU
 | SpliceAI DS max | `spliceai_DS_max` | ✓ | ✓ | ✓ | copied |
 | ESM1b-FT | `ESM1b-FT_score` | ✓ | ✓ | ✓ | ClinVar, SGE: copied; VUS: 2.2 |
 | Random | `random_baseline_score` | ✓ | ✓ | | `prep_main_table.py` (Uniform(0, 1), seed 2026) |
-| Evo 2 | `evo2_delta` | ✓ | | | copied (reviewer analyses only) |
-| AlphaGenome AVI | `AVI_raw` (else `AVI_phred`) | ✓ | | | copied (reviewer analyses only) |
+| Evo 2 | `evo2_delta` | ✓ | | | optional; not in the manuscript figures |
+| AlphaGenome AVI | `AVI_raw` (else `AVI_phred`) | ✓ | | | optional; not in the manuscript figures |
 | SGE function class, RNA score | `FUNC_CONSEQUENCE`, `RNA_SCORE` | | ✓ | | copied |
 | ClinGen ERepo classification with / without PP3 / BP4 | `erepo_variants.tsv` | ✓ | | | 2.2 |
 | Saluki Δ half-life | `saluki_delta` (+ `saluki_status`, …) | | | ✓ | 2.2 |
@@ -348,6 +344,8 @@ python -u analysis/scoring/alphagenome_score.py --outdir $L \
 | `scoring/alphagenome_score.py` | AlphaGenome features of a list of VUS (`--select none`) from the Atlas (default) or live; `--inspect`, `--diagnose`, `--compare`, `--compare_tables` | `alphagenome` | `results/scores/vus_alphagenome_{atlas,live}/` |
 | `scoring/fimo_motifs.py`, `scoring/fimo_score.py` | JASPAR 2026 motif file; FIMO TF-binding disruption of any variant table (`run_parallel.sh fimo` for the VUS) | `meme` | `data/external/jaspar2026/`, `results/scores/vus_fimo/` |
 | `scoring/merge_vus.py` | the annotated VUS table | `lamar` | `results/annotated/vus/ClinVar_20260923_VUS_heldout_annotated.tsv` |
+| `prep_random_baseline.py` | Random (null) score of the later-release variants, once | `lamar` | `results/scores/random_baseline.tsv` |
+| `scoring/annotate_spliceai.py`, `scoring/replace_dbnsfp_columns.py` | SpliceAI columns of any variant table; dbNSFP columns + transcript tiers from `scoring/annotate_dbnsfp.py` (ClinVar main tables' inputs) | `lamar` | the table, in place |
 
 Every figure script takes `--ensemble bergquist` plus the shared options of `core.parser` (input paths, `--vus`,
 `--n_boot 1000`, `--seed 0`, `--n_jobs`, `--out results/analysis`); `--figs` picks figures within a script
@@ -387,7 +385,7 @@ results/
 ```
 
 `data/external/` holds the Saluki models, Ensembl 115 and the JASPAR 2026 motif file; `data/bed`, `data/sequence` and `data/splits` are
-GLM-Missense model 2's split and are never touched. **Variant lists** (`variant_lists/<ensemble>/`, for checking variants one by one against other evidence): one row per
+the splits of `preprocessing/` (Table 2) and are only read. **Variant lists** (`variant_lists/<ensemble>/`, for checking variants one by one against other evidence): one row per
 variant and group. First the selection (fig6 / figS13 `_resolved`: `resolved_by`, class, focal score, RNA or SpliceAI
 score, `reference_wrong` / `reference_correct`; `fig7_discordant`: model, direction, case or control, `match_case`,
 focal score; `fig7_candidates`: every GLM-Missense-pathogenic VUS against most comparators, `RNA_test_candidate`), then `oriented_<score>` and `call_<score>` (P / B / empty) for every score,
@@ -438,7 +436,7 @@ Every figure is `results/analysis/figures/<ensemble>/<figure>.pdf` (+ `.png`); i
   before cases and controls are chosen, so every panel is on the same pairs (fig7, figS14). The figures show all pairs; the same tests on the
   pairs whose case and control both have SpliceAI < 0.2 are in `<fig>_main_nosplice.tsv` (own q). Control: of the
   unused VUS with the case's gene and number of comparators against, the nearest in genomic position; `--seed`
-  (default 0) only breaks ties, and `analysis/reviewer/fig7_seeds.py` checks 100 seeds. Both models are analysed on
+  (default 0) only breaks ties. Both models are analysed on
   the same VUS. Other features (AlphaGenome, FIMO, ...) are
   never required: each is tested on the selected VUS that have it.
 
@@ -504,30 +502,90 @@ Every figure is `results/analysis/figures/<ensemble>/<figure>.pdf` (+ `.png`); i
   `core.finish(fig, '<figure name>', tables, ...)`: figures go to `figures/<ensemble>/`, panel tables and manifests
   to `tables/<ensemble>/` next to the other manuscript figures; add it to `run_all.sh`.
 - Input preparation in `prep_<name>.py` writing to `results/analysis/prep/<name>/`; new external inputs copied with
-  a `copy` line in `copy_inputs.sh` (logged in `COPY_LOG.tsv`; its source in Copied inputs); new scores computed by a
+  a `copy` line in `copy_inputs.sh` (logged in `COPY_LOG.tsv`; its source in Inputs); new scores computed by a
   script in `scoring/` writing to `results/scores/<name>/`, added to the annotated table by `merge_vus.py` if they
   are VUS scores.
 - Models from `core.metamissense()` / `core.ensemble()` (cached in `models/<ensemble>/`), so every analysis uses the
   same MetaMissense and ablation ensembles.
 
-## Copied inputs
+## Inputs
 
-<!-- Collaborator section: how each copied input was made and where it is copied from. Replace with the
-     instructions that produce these files; nothing else in analysis/ refers to these locations. -->
+Every figure reads four input tables (plus reference files). Each is either built by the commands below or copied
+into place by `copy_inputs.sh` (source folders in `analysis/copy_inputs.local.sh`, not tracked; every copy logged in
+`results/annotated/COPY_LOG.tsv`).
 
-Source paths (also the block at the top of `copy_inputs.sh`):
+| Input | Path (read by) | Made by |
+|---|---|---|
+| ClinVar main tables | `results/annotated/clinvar/ClinVar.260923only.BLBvsPLP_{train,test}.main.tsv` (`core.py --main_dir`) | `prep_main_table.py` (below) |
+| RAD51D SGE table | `core.SGE_FILE` under `results/annotated/sge/` (`core.py --sge`) | **[TBA-A2]** |
+| held-out VUS table | `results/annotated/vus/ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv` (`scoring/merge_vus.py`) | **[TBA-A3]** |
+| ClinGen Evidence Repository | `data/clingen/` → `results/analysis/prep/clingen_erepo/` (`fig_circularity.py`) | `prep_clingen_download.sh`, `prep_clingen.py` |
+| ESM1b-FT checkpoint | `results/models/ESM1b-FT/exp_1_concat_diff/best_model.pt` | `training/` (**[TBA-T2]**) |
+| ESRseq hexamers, codon stability coefficients | `results/annotated/vus/reference/` (`scoring/seq_features.py`) | **[TBA-A4]** |
+| Saluki models | `data/external/saluki/train_gru/f*_c*/train/model0_best.h5`, `params.json` | Zenodo 10.5281/zenodo.6326409 (**[TBA-A4]**) |
+| Ensembl GRCh38 release 115 FASTA + GTF | `data/external/ensembl115/` | `wget https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz` and `.../release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz`, then `gunzip` |
 
-| Input | Copied to | From | How it was made |
-|---|---|---|---|
-| ClinVar main tables `ClinVar.260923only.BLBvsPLP_{train,test}.main.tsv` | `results/annotated/clinvar/` | `/n/electric/data/yaqisu/GLM-Missense/GB_revision/clinvar_results_with_ESCOTT/analysis/00_main_table/` | `prep_main_table.py` (dbNSFP 5.3.1a, GLM-Missense, ESM1b-FT, SpliceAI, Random), then ESCOTT, AlphaGenome AVI and Evo 2 added (Yaqi) |
-| RAD51D SGE table | `results/annotated/sge/` | `/n/electric/data/yaqisu/GLM-Missense/GB_revision/SGE_datasets/` | dbNSFP, GLM-Missense, ESM1b-FT, SpliceAI, ESCOTT (Yaqi) |
-| held-out VUS `ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv` | `results/annotated/vus/` | `/n/electric/data/yaqisu/GLM-Missense/GB_revision/VUS_analysis/` | held-out ClinVar 20260923 missense VUS with dbNSFP, GLM-Missense, SpliceAI (Yaqi) |
-| ESRseq hexamers, codon stability coefficients | `results/annotated/vus/reference/` | `/n/electric/data/yaqisu/GLM-Missense/GB_revision/VUS_analysis/ClinVar_20260923_VUS_missense_heldoutOnly_discordant_analysis/` | Ke et al. 2011; Wu et al. 2019 |
-| ESM1b-FT checkpoint `best_model.pt` | `results/models/ESM1b-FT/exp_1_concat_diff/` | `/n/electric/data/yaqisu/GLM-Missense/GB_revision/ESM1b_fine-tune_result/exp_1_concat_diff/` | `fine-tune_ESM1b.py` fine-tuning (Yaqi); `analysis/scoring/fine-tune_ESM1b.py` and `map_variants_to_mane_protein.py` are her scripts, unchanged |
-| Saluki models (`f*_c*/train/model0_best.h5`, `params.json`) | `data/external/saluki/train_gru/` | `/h/yaqisu/Downloads/saluki/datasets/deeplearning/train_gru/` | Zenodo 10.5281/zenodo.6326409 |
-| Ensembl GRCh38 release 115 FASTA + GTF | `data/external/ensembl115/` | `/n/giant/data/yaqisu/reference/` | Ensembl |
-| live AlphaGenome features of earlier selections | `results/scores/vus_alphagenome_live/alphagenome_features_earlier.tsv` | `/n/electric/data/yaqisu/GLM-Missense/GB_revision/VUS_analysis/ClinVar_20260923_VUS_missense_heldoutOnly_discordant_analysis/alphaGenome_annotated_v02/alphagenome_features.tsv` | `add_alphagenome_score_vus.py` (= `alphagenome_score.py --source live`, defaults) (Yaqi; package version and date: to add) |
+### ClinVar main tables
 
-Environments: `lamar` is Yaqi's fine-tuning env (`conda create -n lamar --clone <path of Yaqi's lamar env>` if it is
-not on your env list by name); `saluki` is a clone of Yaqi's alphaGenome env plus TensorFlow
-(`conda create -n saluki --clone <that env>`; path and TensorFlow version: to add), or built from scratch (section 1).
+One table per later-release split (training: chromosomes other than 2, 3, 16, 17; test: 2, 3, 16, 17) with every
+score the figures use. `prep_main_table.py` joins, per split:
+
+| Column(s) | From | Made by |
+|---|---|---|
+| dbNSFP 5.3.1a columns (strict values plus `<score>_fb` / `<score>_tier`, `clinvar_match`, `matched_enst`), `GLM-Missense_score`, `spliceai_*` | `results/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_{training,validation}_GLM-Missense_annotated_dbNSFPannotated.tsv` | `scoring/GLM-Missense.py`, `scoring/annotate_dbnsfp.py --clinvar_tx`, `analysis/scoring/replace_dbnsfp_columns.py --fallback_tsv`, `analysis/scoring/annotate_spliceai.py --files` (**[TBA-A1]**) |
+| `label`, `clinvar_class`, `split` | `data/splits/…BLBvsPLP_{training,validation}.tsv`, `data/bed/ClinVar.260923only.*.bed` | `preprocessing/` |
+| `ESM1b-FT_score` | `results/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_{training,validation}_ESM1b-FT_annotated.tsv` | **[TBA-A5]** |
+| `NT2-ZS_score`, `NT2-ZS_llr` | `results/predictions/ClinVar.260923only.BLBvsPLP[_train]/zeroshot_NT2_seq12k.tsv` | `evaluation/zeroshot_nt.py` |
+| `random_baseline_score` | `results/scores/random_baseline.tsv` | `prep_random_baseline.py` |
+
+```bash
+conda activate lamar
+python analysis/prep_random_baseline.py
+for s in train test; do python analysis/prep_main_table.py --split $s --outdir results/annotated/clinvar; done
+python analysis/core.py                       # score columns and coverage
+```
+
+### To be added
+
+> **[TBA-A1] dbNSFP, GLM-Missense and SpliceAI table of the later-release splits.** The commands that produce
+> `results/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_{training,validation}_GLM-Missense_annotated_dbNSFPannotated.tsv`
+> from the split files: GLM-Missense scores (`scoring/GLM-Missense.py`), dbNSFP 5.3.1a with the ClinVar transcript
+> (`scoring/annotate_dbnsfp.py --clinvar_tx data/clinvar/clinvar_transcripts.tsv`), the transcript-tier columns
+> (`analysis/scoring/replace_dbnsfp_columns.py --fallback_tsv`) and SpliceAI
+> (`analysis/scoring/annotate_spliceai.py --files`; raw SNV scores, `data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz`).
+
+> **[TBA-A2] RAD51D SGE table (Figs 5, 6).** Source: Casadei et al. (2026) RAD51D saturation genome editing data
+> (download and file to be named here, under `data/sge/`). To add: a `prep_sge.py` (or commands) that keeps missense
+> SNVs annotated on ENST00000345365.11 and adds dbNSFP (`scoring/annotate_dbnsfp.py`), GLM-Missense
+> (`scoring/prepare_glm_input.py`, `scoring/GLM-Missense.py`), ESM1b-FT (as for the VUS, section 2.2) and SpliceAI
+> (`analysis/scoring/annotate_spliceai.py`).
+> Output: the file `core.SGE_FILE` with the columns `core.sge()` reads: `variant_id`, `position`, `TRANSCRIPT_ID`,
+> `FUNC_CONSEQUENCE` (`functionally_abnormal` / `functionally_normal` / other), `RNA_SCORE`, the dbNSFP columns with
+> `Ensembl_transcriptid`, `GLM-Missense_score`, `ESM1b-FT_score`, `spliceai_DS_max`.
+
+> **[TBA-A3] Held-out VUS table (Fig 7, Fig S14).** From the held-out VUS set (`preprocessing/`, **[TBA-P3]**): GLM-Missense
+> scores, dbNSFP 5.3.1a, SpliceAI, and the ClinVar transcript and protein change.
+> Output: `results/annotated/vus/ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv`
+> with `variant_id`, `chromosome`, `position`, `ref_allele`, `alt_allele`, `gene`, `TRANSCRIPT_ID` (Ensembl),
+> `HGVS_C`, `PROTEIN_CHANGE` (e.g. `p.Ile293Val`), `clinvar_id`, the dbNSFP columns with `Ensembl_transcriptid`,
+> `GLM-Missense_score`, `spliceai_DS_max` (n = 526,428 before filtering for scores).
+
+> **[TBA-A4] Reference files of the sequence features.** Download and file names of the ESRseq hexamer scores
+> (Ke et al. 2011) and the six human codon stability coefficient sets (Wu et al. 2019), as read by
+> `scoring/seq_features.py`, and the layout of the Saluki model download.
+
+> **[TBA-A5] ESM1b-FT scores of the later-release ClinVar variants.** The commands (as for the VUS, section 2.2) that
+> produce `results/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_{training,validation}_ESM1b-FT_annotated.tsv`
+> (columns `chromosome`, `position`, `ref_allele`, `alt_allele`, `ESM1b-FT_score`).
+
+> **[TBA-A7] Table 1 (RAD51D variants resolved by GLM-Missense).** `fig_splicing.py` writes the functionally
+> abnormal resolved variants with their scores to `results/analysis/variant_lists/<ensemble>/fig6_resolved.tsv`. To
+> add: the exon number, exon-exon junction distance and ESE hotspot status columns, and the script that writes the
+> table (`results/analysis/tables/<ensemble>/table1.tsv`).
+
+> **[TBA-A8] Table S2 (ClinVar variants resolved by GLM-Missense).** As [TBA-A7], from
+> `variant_lists/<ensemble>/figS13_resolved.tsv` (pathogenic or likely pathogenic, GLM-Missense-resolved): exon-exon
+> junction distance and the ClinVar splicing-evidence status of each variant (`results/analysis/tables/<ensemble>/tableS2.tsv`).
+
+> **[TBA-A6] Environments.** `analysis/envs/<env>.yml` for `lamar` (PyTorch, `transformers`, `peft`; also the
+> training env) and `saluki` (section 1: `conda env export -n <env> --no-builds`).

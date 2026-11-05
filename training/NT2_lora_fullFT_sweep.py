@@ -943,7 +943,7 @@ def run_all_experiments(train_path_sweep, val_path_sweep,
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Reviewer Response Sweep: LoRA grid + full fine-tune LR sweep for NT2'
+        description='LoRA grid + full fine-tune LR sweep for NT2'
     )
     parser.add_argument('--train_path_sweep', type=str, required=True,
                         help='Path to training data for LoRA sweep (TSV, e.g. 5k samples)')
@@ -953,7 +953,7 @@ def main():
                         help='Path to training data for full fine-tune (TSV, e.g. 44k samples)')
     parser.add_argument('--val_path_ft', type=str, required=True,
                         help='Path to validation data for full fine-tune (TSV)')
-    parser.add_argument('--output_dir', type=str, default='./nt2_reviewer_sweep',
+    parser.add_argument('--output_dir', type=str, default='./nt2_lora_fullFT_sweep',
                         help='Output directory')
     parser.add_argument('--gpus', type=int, nargs='+', default=[0, 1, 2, 3],
                         help='List of GPU IDs to use (default: 0 1 2 3)')

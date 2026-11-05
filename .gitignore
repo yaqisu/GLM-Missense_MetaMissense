@@ -1,14 +1,11 @@
 data/
-
-results/*
-!results/predictions/
-results/predictions/**
-!results/predictions/*/
-!results/predictions/**/merge_config.tsv
+results/
 
 scoring/GLM-Missense.pt
 
 **/__pycache__/
 *.pyc
 *.pyo
+.ipynb_checkpoints/
 analysis/reviewer/
+analysis/copy_inputs.local.sh

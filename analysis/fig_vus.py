@@ -19,8 +19,7 @@ Supporting intervals, in between = no call). Per model and direction: case = the
 pathogenic, <= B_THR benign) opposed by most comparators (core.k_of: >= 2/3 of the base, e.g. 5 of 7); control = the
 model's opposite confident call with the same number of comparators against, from the case's gene: of those not yet
 used, the one nearest to the case in genomic position (1 per case, without replacement; a case without one is dropped;
-most confident cases matched first, up to --max_variants / 2 cases; --seed only breaks ties in score or distance, and
-analysis/reviewer/fig7_seeds.py checks 100 seeds). Each
+most confident cases matched first, up to --max_variants / 2 cases; --seed only breaks ties in score or distance). Each
 case vs its own control: Wilcoxon signed-rank (continuous) or exact McNemar (binary). Subsets: all, and no splicing
 signal (SpliceAI < 0.2; tables only). Figure q: Benjamini-Hochberg over the tests the figure shows (its features x both
 directions, all pairs), per model: 6 tests in fig7 and figS14.

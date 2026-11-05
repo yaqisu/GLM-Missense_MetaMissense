@@ -16,22 +16,22 @@ Strategy (masked marginal):
     high pathogenicity score, consistent with score_variants.py (0-1, higher
     = more pathogenic).
 
-Output format is identical to scoring/score_variants.py so both feed into
-evaluation/merge_predictions.py without modification.
+Used for Fig S7 (evaluation/fig_zeroshot.py) and the NT2-ZS column of the ClinVar
+main tables (analysis/prep_main_table.py).
 
 Usage (run from repo root):
     python evaluation/zeroshot_nt.py \\
         --input  data/splits/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_validation.tsv \\
-        --output results/predictions/ClinVar.260923only.seq12k/zeroshot_NT2_seq12k.tsv \\
+        --output results/predictions/ClinVar.260923only.BLBvsPLP/zeroshot_NT2_seq12k.tsv \\
         --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \\
         --gpu 0
 
-    # NT-1 (human-only model)
+    # later-release training split (NT2-ZS column of the training main table)
     python evaluation/zeroshot_nt.py \\
-        --input  data/splits/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_validation.tsv \\
-        --output results/predictions/ClinVar.260923only.seq12k/zeroshot_NT1_seq12k.tsv \\
-        --model_name InstaDeepAI/nucleotide-transformer-500m-human-ref \\
-        --gpu 1
+        --input  data/splits/ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_training.tsv \\
+        --output results/predictions/ClinVar.260923only.BLBvsPLP_train/zeroshot_NT2_seq12k.tsv \\
+        --model_name InstaDeepAI/nucleotide-transformer-v2-500m-multi-species \\
+        --gpu 0
 """
 
 import sys

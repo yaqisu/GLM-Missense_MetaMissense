@@ -66,8 +66,7 @@ from xgboost import XGBClassifier  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]                               # repo root
 MAIN = 'ClinVar.260923only.BLBvsPLP_{split}.main.tsv'
-SGE_FILE = ('results/annotated/sge/RAD51D_missense_dbNSFP_annotated_GLM-Missense_annotated_ESM1b-FT_annotated'
-            '.spliceai_annot.ESCOTT_annot.tsv')
+SGE_FILE = 'results/annotated/sge/RAD51D_SGE_missense_annotated.tsv'                     # [TBA-A2] in README
 TIERS = ['clinvar_tx', 'clinvar_tx_mapped', 'variant']                   # strict_transcript
 TEST_CHROMS = {'2', '3', '16', '17'}
 
@@ -92,8 +91,8 @@ METHODS = {
     'GERP++':        (['GERP++_RS'], 'GERP++', False, '#8C8C8C'),
     'phyloP100':     (['phyloP100way_vertebrate'], 'phyloP (100 vert.)', False, '#8C8C8C'),
     'phyloP470':     (['phyloP470way_mammalian'], 'phyloP (470 mamm.)', False, '#8C8C8C'),
-    EVO2:            (['evo2_delta'], 'Evo 2', True, '#8C8C8C'),                        # LL(alt) − LL(ref); reviewer analyses only
-    AVI:             (['AVI_raw', 'AVI_phred'], 'AlphaGenome AVI', False, '#8C8C8C'),   # raw first; reviewer analyses only
+    EVO2:            (['evo2_delta'], 'Evo 2', True, '#8C8C8C'),                        # LL(alt) − LL(ref); not in the manuscript figures
+    AVI:             (['AVI_raw', 'AVI_phred'], 'AlphaGenome AVI', False, '#8C8C8C'),   # raw first; not in the manuscript figures
 }
 DBNSFP = ['AlphaMissense', 'ESM1b', 'REVEL', 'CADD', 'SIFT', 'PolyPhen-2', 'BayesDel', 'MutPred2', 'VEST4', 'VARITY_R']
 NAME = {k: v[1] for k, v in METHODS.items()} | {MM: 'MetaMissense'}

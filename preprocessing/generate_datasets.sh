@@ -4,9 +4,11 @@
 # train/val sets, as defined in a config file.
 #
 # For each row in the config:
-#   - Extracts flanking sequences for each BED file with the appropriate label
-#   - If split=yes: combines per-class TSVs and splits into train/val by chromosome
-#   - If split=no:  generates sequences only (e.g. benchmark/test data)
+#   - Extracts flanking sequences for each BED file with the appropriate label,
+#     for the window sizes listed in the row's `sizes` column
+#   - If split=yes: combines per-class TSVs and splits them into training / held-out
+#     sets by the row's `heldout` chromosome set
+#   - If split=no:  generates sequences only
 #
 # Usage:
 #   bash preprocessing/generate_datasets.sh -c <config> [-s <sizes>]
@@ -14,17 +16,14 @@
 # Options:
 #   -c <config>     Path to config TSV (e.g. preprocessing/config.tsv). Required.
 #                   Edit this file to add/change datasets. See README for format.
-#   -s <sizes>      Comma-separated window sizes in units of k (1k = 1000 bp).
-#                   Accepts predefined names (6k, 12k, 30k, 60k, 130k) or any
-#                   custom value like 11.7k. The flank on each side = round(Xk*1000/2).
-#                   Default: 12k
+#   -s <sizes>      Optional. Comma-separated window sizes; only these sizes are
+#                   generated (each row still only generates the sizes it lists).
+#                   Default: every size listed in the config.
 #   -h              Show this help message
 #
 # Examples:
-#   bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv
-#   bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 6k,12k
-#   bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 11.7k
-#   bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 6k,11.7k,30k
+#   bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv           # all Table 2 sets
+#   bash preprocessing/generate_datasets.sh -c preprocessing/config.tsv -s 12k    # 12k only
 #
 # Window size math:
 #   For a given size Xk: total_window = round(X * 1000), flank = (total_window - 1) / 2
@@ -57,7 +56,7 @@ declare -A PRESET_LENGTHS=(
 )
 
 # --- Parse arguments ---------------------------------------------------------
-SIZES_ARG="12k"
+SIZES_ARG=""
 while getopts ":c:s:h" opt; do
     case "${opt}" in
         c) CONFIG="${OPTARG}" ;;
@@ -72,33 +71,30 @@ done
 [[ -f "$CONFIG" ]] || { echo "ERROR: Config not found: $CONFIG" >&2; exit 1; }
 [[ -f "$GENOME" ]] || { echo "ERROR: Reference genome not found: $GENOME" >&2; exit 1; }
 
-# --- Resolve sizes: predefined or arbitrary Xk -> flank ----------------------
+# --- Resolve a size (predefined or arbitrary Xk) to its flank -----------------
 # For a given Xk: total = round(X * 1000), flank = (total - 1) / 2
 # We require total to be odd so the variant sits exactly in the middle.
 # If round(X*1000) is even, we subtract 1 to make it odd.
-declare -A LENGTHS   # suffix -> flank
-IFS=',' read -ra _raw_sizes <<< "$SIZES_ARG"
-for s in "${_raw_sizes[@]}"; do
-    s="${s// /}"   # strip spaces
+flank_of() {
+    local s="${1// /}"
     if [[ -v PRESET_LENGTHS[$s] ]]; then
-        LENGTHS[$s]="${PRESET_LENGTHS[$s]}"
+        echo "${PRESET_LENGTHS[$s]}"
     elif [[ "$s" =~ ^([0-9]+\.?[0-9]*)k$ ]]; then
-        xval="${BASH_REMATCH[1]}"
-        total=$(python3 -c "
-import math
-x = float('$xval')
+        python3 -c "
+x = float('${BASH_REMATCH[1]}')
 total = round(x * 1000)
 if total % 2 == 0:
     total -= 1
-print(total)
-")
-        flank=$(( (total - 1) / 2 ))
-        LENGTHS[$s]="$flank"
+print((total - 1) // 2)
+"
     else
         echo "ERROR: Invalid size '$s'. Use a number followed by k, e.g. 12k or 11.7k." >&2
         exit 1
     fi
-done
+}
+
+declare -A LENGTHS   # suffix -> flank, filled per config row
+ONLY=",${SIZES_ARG// /},"   # sizes given with -s, comma-delimited ("" = no restriction)
 
 mkdir -p "$SEQ_DIR" "$SPLIT_DIR"
 
@@ -144,6 +140,7 @@ split_dataset() {
     local suffix="$2"
     local -n _class0_beds="$3"
     local -n _class1_beds="$4"
+    local heldout="$5"
 
     # Filename format: {prefix}.seq{suffix}.{mode}_{training|validation}.tsv
     # e.g. ClinVar.251103.missense.hg38.seq12k.BvsP_training.tsv
@@ -178,8 +175,8 @@ split_dataset() {
         fi
     done
 
-    echo "    Splitting: ${prefix}.seq${suffix}.${mode}"
-    python "$SPLIT_SCRIPT" --input "$combined" --train "$train_out" --val "$val_out"
+    echo "    Splitting: ${prefix}.seq${suffix}.${mode}  (held out: ${heldout})"
+    python "$SPLIT_SCRIPT" --input "$combined" --train "$train_out" --val "$val_out" --heldout "$heldout"
     rm "$combined"
 }
 
@@ -237,7 +234,7 @@ concat_dataset() {
 
 # --- Main loop over config rows ----------------------------------------------
 echo "Config : $CONFIG"
-echo "Sizes  : ${!LENGTHS[*]}"
+[[ -n "$SIZES_ARG" ]] && echo "Sizes  : only ${SIZES_ARG}"
 echo ""
 
 while IFS= read -r line; do
@@ -250,18 +247,27 @@ while IFS= read -r line; do
     class1=$(echo "$line"    | cut -f3)
     unlabeled=$(echo "$line" | cut -f4)
     split=$(echo "$line"     | cut -f5)
+    heldout=$(echo "$line"   | cut -f6)
+    sizes=$(echo "$line"     | cut -f7)
 
     [[ -z "$name" ]] && continue
+    [[ "${split:-no}" == "yes" && -z "$heldout" ]] && {
+        echo "ERROR: ${name}: split=yes needs a heldout chromosome set (column 6)." >&2; exit 1; }
+    [[ -z "$sizes" ]] && { echo "ERROR: ${name}: no sizes (column 7)." >&2; exit 1; }
 
     echo "============================================================"
-    echo "Dataset: ${name}  (split=${split:-no})"
+    echo "Dataset: ${name}  (split=${split:-no}, heldout=${heldout:--}, sizes=${sizes})"
     echo "============================================================"
 
     IFS=';' read -ra class0_beds    <<< "${class0:-}"
     IFS=';' read -ra class1_beds    <<< "${class1:-}"
     IFS=';' read -ra unlabeled_beds <<< "${unlabeled:-}"
+    IFS=',' read -ra row_sizes      <<< "${sizes}"
 
-    for suffix in "${!LENGTHS[@]}"; do
+    for suffix in "${row_sizes[@]}"; do
+        suffix="${suffix// /}"
+        if [[ -n "$SIZES_ARG" && "$ONLY" != *",${suffix},"* ]]; then continue; fi
+        LENGTHS[$suffix]=$(flank_of "$suffix")
         echo "  -- seq${suffix} --"
 
         # Step 1: generate sequences
@@ -271,7 +277,7 @@ while IFS= read -r line; do
 
         # Step 2: split or concatenate
         if [[ "${split:-no}" == "yes" ]]; then
-            split_dataset "$name" "$suffix" class0_beds class1_beds
+            split_dataset "$name" "$suffix" class0_beds class1_beds "$heldout"
         else
             concat_dataset "$name" "$suffix" class0_beds class1_beds unlabeled_beds
         fi

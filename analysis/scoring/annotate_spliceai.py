@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-add_spliceai_scores.py
+annotate_spliceai.py
 
-Annotates all results/predictions/*/merged.tsv with SpliceAI delta scores,
-looked up efficiently via tabix from the raw SNV VCF.
+Annotates variant tables with SpliceAI delta scores, looked up via tabix from the
+raw SNV VCF (spliceai_scores.raw.snv.hg38.vcf.gz). Used for the ClinVar, SGE and
+VUS tables of analysis/.
 
 Usage:
-    python evaluation/add_spliceai_scores.py \
+    python analysis/scoring/annotate_spliceai.py \
         --spliceai data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz \
-        --predictions_dir results/predictions \
+        --files T1.tsv [T2.tsv ...] \
         [--no-overwrite]
+    (without --files: every results/predictions/*/merged.tsv)
 
 Requires:
     pip install pysam pandas
@@ -17,7 +19,7 @@ Requires:
 SpliceAI INFO field format:
     SpliceAI=ALT|GENE|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL
 
-Columns added to each merged.tsv:
+Columns added to each table:
     spliceai_DS_AG   delta score acceptor gain
     spliceai_DS_AL   delta score acceptor loss
     spliceai_DS_DG   delta score donor gain
@@ -157,6 +159,8 @@ def main():
              "Pass --no-overwrite to write *.spliceai.tsv instead.",
     )
     parser.add_argument("--no-overwrite", dest="overwrite", action="store_false")
+    parser.add_argument("--files", nargs="+", default=None,
+                        help="Annotate these TSVs instead of {predictions_dir}/*/merged.tsv")
     args = parser.parse_args()
 
     # Validate inputs
@@ -171,7 +175,7 @@ def main():
         )
 
     pattern = os.path.join(args.predictions_dir, "*", "merged.tsv")
-    merged_files = sorted(glob.glob(pattern))
+    merged_files = args.files or sorted(glob.glob(pattern))
     if not merged_files:
         sys.exit(f"[error] No merged.tsv files found under {args.predictions_dir}/*/")
 

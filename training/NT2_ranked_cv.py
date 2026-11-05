@@ -64,7 +64,7 @@ def get_fold_split(data, fold_chroms, fold_idx):
 
 
 # ============================================================================
-# Classifier Heads  (from NT2_reviewer_sweep.py)
+# Classifier Heads  (from NT2_lora_fullFT_sweep.py)
 # ============================================================================
 
 class MLPClassifier(nn.Module):
@@ -182,7 +182,7 @@ class TransformerClassifier(nn.Module):
 
 
 # ============================================================================
-# Model Wrapper  (from NT2_reviewer_sweep.py, LoRA only)
+# Model Wrapper  (from NT2_lora_fullFT_sweep.py, LoRA only)
 # ============================================================================
 
 class NT2_FineTune(nn.Module):

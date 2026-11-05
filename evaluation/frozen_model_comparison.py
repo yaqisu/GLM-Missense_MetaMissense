@@ -4,12 +4,15 @@ evaluation/frozen_model_comparison.py
 Classifier Head and Embedding Strategy Comparison
          (Frozen backbone: NT-2, NT-1, Caduceus)
 
-Reads:  results/frozen_results.tsv
+Fig S2: training (left) and validation (right) AUROC over training steps of every
+frozen-backbone configuration.
+
+Reads:  results/frozen_results.tsv  (one row per run, Val_Step{N}_AUC columns; see [TBA-E1])
         — only frozen-backbone rows (Fine-tuning == "frozen" or
           "frozen-input_leng=6k")
 
-Writes: results/figures/frozen_model_comparison.pdf  (editable in Illustrator)
-        results/figures/frozen_model_comparison.png
+Writes: results/evaluation/figures/figS2.pdf  (editable in Illustrator)
+        results/evaluation/figures/figS2.png
 
 Font: Arial via runtime addfont — no conda env write access required.
      pdf.fonttype=42 ensures text is editable in Adobe Illustrator.
@@ -30,11 +33,12 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 # ── Arial font registration (no conda write access needed) ─────────────────
-_USER_FONT_DIR = "/n/electric/data/jenniferlin/fonts"
-if os.path.isdir(_USER_FONT_DIR):
-    for _f in os.listdir(_USER_FONT_DIR):
-        if _f.lower().endswith(".ttf") or _f.lower().endswith(".otf"):
-            _fm.fontManager.addfont(os.path.join(_USER_FONT_DIR, _f))
+# ARIAL_DIR, else a fonts/ folder next to the repo
+for _d in [os.environ.get("ARIAL_DIR", ""), str(Path(__file__).resolve().parents[2] / "fonts")]:
+    if _d and os.path.isdir(_d):
+        for _f in os.listdir(_d):
+            if _f.lower().endswith(".ttf") or _f.lower().endswith(".otf"):
+                _fm.fontManager.addfont(os.path.join(_d, _f))
 
 matplotlib.rcParams.update({
     "font.family":     "sans-serif",
@@ -47,8 +51,8 @@ matplotlib.rcParams.update({
 # ── Paths ──────────────────────────────────────────────────────────────────
 ROOT     = Path(__file__).parent.parent
 DATA     = ROOT / "results" / "frozen_results.tsv"
-OUT_DIR  = ROOT / "results" / "figures"
-OUT_BASE = OUT_DIR / "frozen_model_comparison"
+OUT_DIR  = ROOT / "results" / "evaluation" / "figures"
+OUT_BASE = OUT_DIR / "figS2"
 
 # ── Marker styles ──────────────────────────────────────────────────────────
 MARKERS = {
