@@ -18,7 +18,7 @@ Every command runs from the repo root. The pipeline, in order:
 | Env | Used for | Main packages |
 |---|---|---|
 | `lamar` | everything except the two below: figures, `prep_*`, `merge_vus.py`, ESM1b-FT scoring (GPU) | PyTorch + CUDA, `transformers`, `peft`, `xgboost`, `scikit-learn`, `pandas`, `pyarrow`, `scipy`, `matplotlib`, `joblib` |
-| `saluki` | `scoring/run_parallel.sh` (Saluki and sequence features) | TensorFlow 2, `pandas`, `numpy` |
+| `saluki` | `scoring/run_parallel.sh` (Saluki Δ half-life and codon stability ΔCSC) | TensorFlow 2, `pandas`, `numpy` |
 | `meme` | `scoring/fimo_motifs.py`, `scoring/fimo_score.py`, `run_parallel.sh fimo` (FIMO TF-binding disruption) | MEME suite 5.5.x (`fimo`), `pandas`, `numpy`, `pyjaspar==4.0.0`, `biopython` |
 
 Every command block below starts with the env it needs. A new env gets a name that says what it is for (one tool or
@@ -51,8 +51,8 @@ conda activate meme && pip install pyjaspar==4.0.0 biopython && fimo --version  
 bash analysis/copy_inputs.sh       # any env; sources in analysis/copy_inputs.local.sh; copies + logs
 ```
 
-It fills `results/annotated/` (ClinVar main tables, RAD51D SGE table, held-out VUS table, reference tables of the
-sequence features), `results/models/ESM1b-FT/` (checkpoint) and `data/external/` (Saluki models, Ensembl GRCh38 release 115 FASTA + GTF),
+It fills `results/annotated/` (ClinVar main tables, RAD51D SGE table, held-out VUS table, codon stability
+coefficients), `results/models/ESM1b-FT/` (checkpoint) and `data/external/` (Saluki models, Ensembl GRCh38 release 115 FASTA + GTF),
 appends one line per file to `results/annotated/COPY_LOG.tsv` (date, destination, source, md5, user; "already present"
 when the file was there) and rewrites `results/annotated/MD5SUMS`. It copies with `cp -pn` (keeps timestamps, never
 overwrites) and warns when a file differs from its source. How every input is made: **Inputs** (last section).
@@ -75,7 +75,7 @@ mkdir -p results/analysis/logs
 |---|---|---|---|
 | ESM1b-FT | `lamar` | 3 GPUs, hours | `results/scores/vus_esm1bft/vus_esm1bft_scores.tsv` |
 | Saluki Δ half-life | `saluki` | 100 CPU cores, hours | `results/scores/vus_saluki/saluki_features_<i>.tsv` |
-| Sequence features | `saluki` | CPU, minutes | `results/scores/vus_seq/seq_features_<i>.tsv` |
+| Codon stability (ΔCSC) | `saluki` | CPU, minutes | `results/scores/vus_seq/seq_features_<i>.tsv` |
 | FIMO TF-binding disruption | `meme` | CPU, ~4–5 core-hours (minutes on 50 cores) | `results/scores/vus_fimo/fimo_features_<i>.tsv` |
 | ClinGen ERepo overlap | `lamar` | minutes | `results/analysis/prep/clingen_erepo/` |
 
@@ -96,14 +96,14 @@ CUDA_VISIBLE_DEVICES=1,2,3 python analysis/scoring/fine-tune_ESM1b.py \
     --gpus 0 1 2 --eval_batch_size 1024 2>&1 | tee $D/predict.log
 ```
 
-**Saluki and sequence features** (CPU): `run_parallel.sh` splits the held-out VUS by transcript into N shards and
+**Saluki and codon stability** (CPU): `run_parallel.sh` splits the held-out VUS by transcript into N shards and
 runs one process per shard (THREADS threads each). Saluki shards resume when rerun; keep `N` the same when rerunning
 (the shards are transcript hash mod N). Each Saluki process loads every model (~1–2 GB of RAM).
 
 ```bash
 conda activate saluki
 N=50 THREADS=2 bash analysis/scoring/run_parallel.sh saluki     # 100 cores
-N=50 bash analysis/scoring/run_parallel.sh seq
+N=50 bash analysis/scoring/run_parallel.sh seq                  # ΔCSC of the six CSC sets (seq_features.py --csc)
 ```
 
 **FIMO TF-binding disruption** (CPU): plain FIMO (MEME suite 5.5; Grant et al. 2011) on the ref and alt allele of
@@ -146,7 +146,7 @@ python analysis/scoring/merge_vus.py 2>&1 | tee results/analysis/logs/merge_vus.
 ```
 
 → `results/annotated/vus/ClinVar_20260923_VUS_heldout_annotated.tsv` (the VUS table + `ESM1b-FT_score`,
-`ESM1b-FT_status`, `saluki_*`, `seq_*`, `fimo_*`) and
+`ESM1b-FT_status`, `saluki_*`, `seq_*` (ΔCSC), `fimo_*`) and
 `.coverage.tsv` (variants with each score). It rebuilds the table from the score outputs every time, so rerun this one
 command whenever a score is recomputed, then rerun the VUS figures (step 3).
 
@@ -165,7 +165,7 @@ command whenever a score is recomputed, then rerun the VUS figures (step 3).
 | SGE function class, RNA score | `FUNC_CONSEQUENCE`, `RNA_SCORE` | | ✓ | | copied |
 | ClinGen ERepo classification with / without PP3 / BP4 | `erepo_variants.tsv` | ✓ | | | 2.2 |
 | Saluki Δ half-life | `saluki_delta` (+ `saluki_status`, …) | | | ✓ | 2.2 |
-| Sequence features (exon-junction distance, codon usage / CSC, ESRseq, CpG, transition, GC) | `seq_*` | | | ✓ | 2.2 |
+| Codon stability (ΔCSC of the six Wu et al. 2019 CSC sets) | `seq_delta_CSC_*` | | | ✓ | 2.2 |
 | FIMO TF-binding disruption (largest loss / gain / \|Δ\| of −log10 p over motifs; motifs lost / gained at p < 1e-4, count and any; their names) | `fimo_loss`, `fimo_gain`, `fimo_max_abs_delta`, `fimo_n_loss`, `fimo_n_gain`, `fimo_any_loss`, `fimo_any_gain`, `fimo_lost_tfs`, `fimo_gained_tfs`, `fimo_status` | test (`.fimo.tsv`) | ✓ (`.fimo.tsv`) | ✓ | 2.2 |
 
 dbNSFP values are **strict_transcript**: the value of the transcript ClinVar named the variant on (`<col>_fb` with
@@ -226,7 +226,7 @@ directions), per model. GLM-Missense vs ESM1b-FT directly: `fig7_specificity.tsv
 | `prep_main_table.py` | builds the ClinVar main tables the copied ones were made from | `lamar` | `prep/main_table/` |
 | `prep_clingen_download.sh`, `prep_clingen.py` | ClinGen Evidence Repository download; match to the ClinVar tables, re-score without PP3 / BP4 | `lamar` | `data/clingen/`, `prep/clingen_erepo/` |
 | `scoring/esm1bft_prepare.py`, `map_variants_to_mane_protein.py`, `fine-tune_ESM1b.py` | ESM1b-FT scores of the VUS: input, MANE protein mapping, prediction (model code) | `lamar` | `results/scores/vus_esm1bft/` |
-| `scoring/run_parallel.sh` (`saluki_score.py`, `seq_features.py`, `fimo_score.py`) | Saluki Δ half-life, sequence or FIMO features of every held-out VUS, parallel CPU processes | `saluki` (`meme` for fimo) | `results/scores/vus_{saluki,seq,fimo}/` |
+| `scoring/run_parallel.sh` (`saluki_score.py`, `seq_features.py`, `fimo_score.py`) | Saluki Δ half-life, codon stability (ΔCSC) or FIMO features of every held-out VUS, parallel CPU processes | `saluki` (`meme` for fimo) | `results/scores/vus_{saluki,seq,fimo}/` |
 | `scoring/fimo_motifs.py`, `scoring/fimo_score.py` | JASPAR 2026 motif file; FIMO TF-binding disruption of any variant table (`run_parallel.sh fimo` for the VUS) | `meme` | `data/external/jaspar2026/`, `results/scores/vus_fimo/` |
 | `scoring/merge_vus.py` | the annotated VUS table | `lamar` | `results/annotated/vus/ClinVar_20260923_VUS_heldout_annotated.tsv` |
 | `prep_random_baseline.py` | Random (null) score of the later-release variants, once | `lamar` | `results/scores/random_baseline.tsv` |
@@ -273,7 +273,7 @@ the splits of `preprocessing/` (Table 2) and are only read. **Variant lists** (`
 variant and group. First the selection (fig6 / figS13 `_resolved`: `resolved_by`, class, focal score, RNA or SpliceAI
 score, `reference_wrong` / `reference_correct`; `fig7_discordant`: model, direction, case or control, `match_case`,
 focal score; `fig7_candidates`: every GLM-Missense-pathogenic VUS against most comparators, `RNA_test_candidate`), then `oriented_<score>` and `call_<score>` (P / B / empty) for every score,
-`feature_<name>` (VUS: Saluki, sequence features), and every column of the source table (`src_<column>`:
+`feature_<name>` (VUS: Saluki, ΔCSC), and every column of the source table (`src_<column>`:
 ClinVar main table, SGE table or annotated VUS table).
 
 `manifest_<fig>.json` records the ensemble version, base, the column each
@@ -353,9 +353,8 @@ Every figure is `results/analysis/figures/<ensemble>/<figure>.pdf` (+ `.png`); i
   (1 per case, without replacement; cases without one dropped; most confident first, ≤ 2,000 per model × direction);
   two-sided Wilcoxon signed-rank on the pairs; q = Benjamini-Hochberg over the tests the figure shows (its features ×
   both directions, all pairs), per model: 6 in fig7 and figS14; specificity = AUC(GLM-Missense) − AUC(ESM1b-FT)
-  (bootstrap CI and p, BH over the same features × directions); RNA-testing candidates. Features: SpliceAI, Saluki Δ half-life, sequence features (ΔCSC: codon stability coefficient of the alt minus
-  the ref codon, Wu et al. 2019; fig7 uses the HEK293T ORFeome set, whose reporters share their UTRs, so it measures
-  the codon effect alone), FIMO TF-binding disruption (below). Other features (and the subset without splicing signal,
+  (bootstrap CI and p, BH over the same features × directions); RNA-testing candidates. Features: SpliceAI, Saluki Δ half-life, codon stability (ΔCSC: codon stability coefficient of the alt minus
+  the ref codon, Wu et al. 2019; fig7 uses the mean of the six human CSC sets), FIMO TF-binding disruption (below). Other features (and the subset without splicing signal,
   SpliceAI < 0.2) are tested in `fig7_tests.tsv` with unadjusted p, not reported. Without labels, an enrichment shows what a model responds to, not that its call is
   right.
 - **FIMO TF-binding disruption** (`fimo_*`; tested in `fig7_tests.tsv`, not in a figure): FIMO 5.5 (`--text --thresh 1e-3 --max-strand`,
@@ -404,7 +403,7 @@ into place by `copy_inputs.sh` (source folders in `analysis/copy_inputs.local.sh
 | held-out VUS table | `results/annotated/vus/ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv` (`scoring/merge_vus.py`) | held-out VUS table (below) |
 | ClinGen Evidence Repository | `data/clingen/` → `results/analysis/prep/clingen_erepo/` (`fig_circularity.py`) | `prep_clingen_download.sh`, `prep_clingen.py` |
 | ESM1b-FT checkpoint | `results/models/ESM1b-FT/exp_1_concat_diff/best_model.pt` | `training/` (ESM1b-FT training) |
-| ESRseq hexamers, codon stability coefficients | `results/annotated/vus/reference/` (`scoring/seq_features.py`) | Ke et al. 2011; Wu et al. 2019 (reference files, below) |
+| Codon stability coefficients | `results/annotated/vus/reference/` (`scoring/seq_features.py`) | Wu et al. 2019 (reference files, below) |
 | Saluki models | `data/external/saluki/train_gru/f*_c*/train/model0_best.h5`, `params.json` | Zenodo 10.5281/zenodo.6326409 (reference files, below) |
 | Ensembl GRCh38 release 115 FASTA + GTF | `data/external/ensembl115/` | `wget https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz` and `.../release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz`, then `gunzip` |
 
@@ -509,14 +508,13 @@ python analysis/scoring/annotate_spliceai.py --spliceai data/spliceai/spliceai_s
 `core.SGE_FILE` holds the columns `core.sge()` reads: `variant_id`, `position`, `TRANSCRIPT_ID`, `FUNC_CONSEQUENCE`,
 `RNA_SCORE`, the dbNSFP columns with `Ensembl_transcriptid`, `GLM-Missense_score`, `ESM1b-FT_score`, `spliceai_DS_max`.
 
-### Reference files of the sequence features
+### Reference files of the codon stability and Saluki scores
 
 From the publications cited in Data availability, read by `scoring/seq_features.py` and `scoring/saluki_score.py`
 (`scoring/run_parallel.sh` names them):
 
 | Data | Source | File |
 |---|---|---|
-| ESRseq hexamer scores | Ke et al. 2011 | `results/annotated/vus/reference/ESRseq_scores_Ke2011.tsv` (hexamer, score) |
 | Codon stability coefficients, six human CSC sets | Wu et al. 2019 (Figure 1—source data 2) | `results/annotated/vus/reference/ORFeome_CSCs_wu2019.csv` (`codon` + one column per CSC set) |
 | Saluki models | Agarwal & Kelley 2022; Zenodo 10.5281/zenodo.6326409 | the 50 human models `datasets/deeplearning/train_gru/f{0-9}_c{0-4}/train/model0_best.h5` and `params.json`, under `data/external/saluki/train_gru/` |
 
