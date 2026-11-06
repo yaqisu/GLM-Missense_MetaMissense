@@ -31,8 +31,8 @@ from tqdm import tqdm
 
 # using 131k Caduceus model and 30k length ClinVar dataset  
 MODEL_NAME = "kuleshov-group/caduceus-ps_seqlen-131k_d_model-256_n_layer-16"
-TRAIN_PATH = "Caduceus_seqlen30k/ClinVar.251103.missense_defOnly.hg38.seq30k_Caduceus_backup2_training.txt"
-VAL_PATH   = "Caduceus_seqlen30k/ClinVar.251103.missense_defOnly.hg38.seq30k_Caduceus_backup2_validation.txt"
+TRAIN_PATH = "data/splits/ClinVar.251103.missense.hg38.seq30k.BvsP_training.tsv"
+VAL_PATH   = "data/splits/ClinVar.251103.missense.hg38.seq30k.BvsP_validation.tsv"
 
 # Using alt sequence only here
 SEQ_COLUMN    = "alt_sequence"

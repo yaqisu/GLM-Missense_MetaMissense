@@ -1,0 +1,5 @@
+name: saluki
+channels:
+  - conda-forge
+  - defaults
+prefix: /h/yaqisu/miniforge3/envs/saluki

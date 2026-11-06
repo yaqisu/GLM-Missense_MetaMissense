@@ -245,6 +245,18 @@ docstring.
 
 ---
 
+## Caduceus-PS input
+
+`training/caduceus_phase1.py` reads the architecture-exploration split files directly (columns `alt_sequence` and
+`label`; the variant is base 15,000 of the 29,999-bp window). The two constants at the top of the script point to them:
+
+```python
+TRAIN_PATH = "data/splits/ClinVar.251103.missense.hg38.seq30k.BvsP_training.tsv"
+VAL_PATH   = "data/splits/ClinVar.251103.missense.hg38.seq30k.BvsP_validation.tsv"
+```
+
+---
+
 ## To be added
 
 > **[TBA-P1] Architecture-exploration subsets.** The LoRA model selection (Fig 3A) and the allele-aware input
@@ -256,11 +268,6 @@ docstring.
 > Output: `data/splits/` (file names to be listed here), read by `training/NT2_lora_fullFT_sweep.py`
 > (`--train_path_sweep`, `--val_path_sweep`), `training/NT2_ranked_cv.py` (`--data_path`) and
 > `training/NT2_ref_alt_input_sweep.py`.
-
-> **[TBA-P2] Caduceus-PS input.** `training/caduceus_phase1.py` reads its training and validation files from the
-> constants `TRAIN_PATH` / `VAL_PATH` at the top of the script. To add: the step that produces these files from
-> `data/splits/ClinVar.251103.missense.hg38.seq30k.BvsP_{training,validation}.tsv` (or point the constants at those
-> files if they can be read directly).
 
 > **[TBA-P3] Held-out VUS set (Table 2, VUS row).** All missense variants classified as VUS
 > (`Uncertain_significance`) in the 20260923 release on chromosomes 2, 3, 16 and 17, without excluding variants present

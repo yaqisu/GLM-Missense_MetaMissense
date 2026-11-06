@@ -69,24 +69,17 @@ preprocessing/ ──► data/splits/*.tsv ────────────�
 | Fig 2, Fig 3, Figs S2–S5, Table S1 | `training/` (runs), `evaluation/` (figures) | see `training/README.md`, `evaluation/README.md` |
 | Fig S6 | `training/`, `evaluation/` | `NT2_ref_alt_contrast.py`; `plot_training_curves.py` |
 | Fig S7 | `evaluation/` | `zeroshot_nt.py`, `fig_zeroshot.py` |
-| Fig S10 | `training/`, `evaluation/` | ESM1b-FT training; figure **[TBA-E7]** |
+| Fig S10 | `training/`, `evaluation/` | ESM1b-FT training (`analysis/scoring/fine-tune_ESM1b.py`); `plot_training_curves.py --name figS10` |
 | Fig 4, Fig 5, Fig S11 | `analysis/` | `fig_complementarity.py` |
 | Fig 6, Fig S13 | `analysis/` | `fig_splicing.py` |
 | Fig 7, Fig S14 | `analysis/` | `fig_vus.py` |
 | Fig S8, Fig S9 | `analysis/` | `fig_leaderboard.py` |
 | Fig S12 | `analysis/` | `fig_circularity.py` |
-| Table 1 | `analysis/` | `fig_splicing.py` (`variant_lists/<ensemble>/fig6_resolved`); **[TBA-A7]** |
+| Table 1 | `analysis/` | `fig_splicing.py` (`variant_lists/<ensemble>/fig6_resolved`); `annotate_exon_junction.py`, `annot_ESE.py` |
 | Table 2 | `preprocessing/` (sets), `analysis/` (counts) | `table_clinvar_sets.py`, `table_clinvar_subsets.py` |
-| Table S2 | `analysis/` | `fig_splicing.py` (`variant_lists/<ensemble>/figS13_resolved`); **[TBA-A8]** |
+| Table S2 | `analysis/` | `fig_splicing.py` (`variant_lists/<ensemble>/figS13_resolved`); `annotate_exon_junction.py` |
 | Table S3 | `analysis/` | thresholds in `core.py` (`CALIBRATED`, `THRESH`) |
 
----
-
-## Placeholders
-
-Parts that are still being added are marked **[TBA-xx]** in the READMEs (`P` preprocessing, `T` training,
-`E` evaluation, `A` analysis). Each marker states what is to be added, its inputs and where its outputs go, so
-that the code that reads them can find them.
 
 ---
 

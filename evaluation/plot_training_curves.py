@@ -1,14 +1,18 @@
 """
-Fig S6: training and validation AUROC / AUPRC of the GLM-Missense run, up to the early stopping point.
+Fig S6 / Fig S10: training and validation AUROC / AUPRC of the GLM-Missense (Fig S6) or ESM1b-FT (Fig S10) run,
+up to the early stopping point.
 
-Input:  results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv
-        (training/runs.sh)
-Output: results/evaluation/figures/figS6.pdf  (and .png)
+Input:  --input, a training_metrics.csv with the columns steps, train_auroc_subset, train_auprc_subset, val_auroc,
+        val_auprc (default: results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv)
+Output: results/evaluation/figures/<--name>.pdf  (and .png; default name figS6)
 
 Run from project root:
-    python evaluation/plot_training_curves.py
+    python evaluation/plot_training_curves.py                                     # Fig S6
+    python evaluation/plot_training_curves.py --name figS10 --model ESM1b-FT \
+        --input results/models/ESM1b-FT/exp_1_concat_diff/training_metrics.csv     # Fig S10
 """
 
+import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -38,8 +42,16 @@ matplotlib.rcParams.update({
 })
 
 # ── Config ────────────────────────────────────────────────────────────────────
-INPUT_CSV = "results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv"
-OUTPUT_DIR = "results/evaluation/figures"
+ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+ap.add_argument("--input", default="results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv",
+                help="training_metrics.csv of the run")
+ap.add_argument("--name", default="figS6", help="output file name without extension (figS6, figS10)")
+ap.add_argument("--model", default="NT2 ref/alt contrast (MLP)", help="model name in the panel titles")
+ap.add_argument("--outdir", default="results/evaluation/figures")
+args = ap.parse_args()
+
+INPUT_CSV  = args.input
+OUTPUT_DIR = args.outdir
 PATIENCE   = 2          # early stopping patience (in eval steps)
 
 # ── Load data ─────────────────────────────────────────────────────────────────
@@ -94,9 +106,13 @@ for ax, (train_col, val_col, ylabel, ymin, ymax) in zip(axes, metrics):
 
     ax.set_xlabel("Training step", fontsize=10)
     ax.set_ylabel(ylabel, fontsize=10)
-    ax.set_title(f"{ylabel} — NT2 ref/alt contrast (MLP)", fontsize=10)
+    ax.set_title(f"{ylabel} — {args.model}", fontsize=10)
     ax.legend(fontsize=9, framealpha=0.8)
-    ax.set_ylim(ymin, ymax)
+    # Fig S6 limits; widened only when another run's curves fall outside them
+    dmin = df_plot[[train_col, val_col]].min().min()
+    dmax = df_plot[[train_col, val_col]].max().max()
+    ax.set_ylim(ymin if dmin >= ymin else dmin - (ymax - ymin) * 0.05,
+                ymax if dmax <= ymax else dmax + (ymax - ymin) * 0.10)
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
     ax.tick_params(labelsize=8.5)
     ax.spines[["top", "right"]].set_visible(False)
@@ -106,7 +122,7 @@ plt.tight_layout()
 # ── Save ──────────────────────────────────────────────────────────────────────
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 for ext in ("pdf", "png"):
-    out_path = os.path.join(OUTPUT_DIR, f"figS6.{ext}")
+    out_path = os.path.join(OUTPUT_DIR, f"{args.name}.{ext}")
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     print(f"Saved: {out_path}")
 

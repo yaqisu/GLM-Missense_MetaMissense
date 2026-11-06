@@ -7,5 +7,6 @@ python training/NT2_ref_alt_contrast.py \
     --batch_size 8 --gradient_accumulation_steps 4 \
     --eval_interval 1000 \
     --eval_batch_size 256 \
-    --train_eval_samples 2000
+    --train_eval_samples 5000 \
+    --val_eval_samples 5000
 

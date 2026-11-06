@@ -27,7 +27,9 @@ Combine modes:
 
 Logging behaviour (controlled by --eval_interval, default 1000):
     Every step         : training loss is logged to console + training_loss.csv
-    Every eval_interval: full eval on train+val sets → training_metrics.csv
+    Every eval_interval: eval on a random train subset (--train_eval_samples)
+                         + the val set (all of it, or a fixed subset with
+                         --val_eval_samples) → training_metrics.csv
                          + best_model.pt checkpoint (if val AUROC improved)
     Post-training      : training_metrics_final.csv, training_curves.pdf,
                          summary.json
@@ -470,6 +472,29 @@ def evaluate_model_subset(model, dataset, criterion, device,
     return evaluate_model(model, loader, criterion, device)
 
 
+VAL_EVAL_SEED = 42  # seed for the fixed --val_eval_samples subset
+
+
+def fixed_subset_indices(labels, n_samples, seed=VAL_EVAL_SEED):
+    """
+    Indices of a fixed, label-stratified random subset of size ~n_samples.
+
+    Same seed -> same indices, so val metrics stay comparable across checkpoints
+    and after a resume. Stratified by label so the class balance (and hence AUPRC)
+    matches the full set. Uses its own numpy RNG, leaving the global torch RNG
+    (training shuffle order) untouched.
+    """
+    labels = np.asarray(labels)
+    rng = np.random.default_rng(seed)
+    frac = n_samples / len(labels)
+    picked = []
+    for cls in np.unique(labels):
+        idx = np.flatnonzero(labels == cls)
+        k = min(len(idx), max(1, round(len(idx) * frac)))
+        picked.append(rng.choice(idx, size=k, replace=False))
+    return np.sort(np.concatenate(picked)).tolist()
+
+
 # ============================================================================
 # Training Loop
 # ============================================================================
@@ -478,7 +503,7 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
                      gpu_list, batch_size=8, num_steps=8000,
                      learning_rate=3e-5, k=6, gradient_accumulation_steps=4,
                      eval_interval=1000, train_eval_samples=10000,
-                     eval_batch_size=256, do_eval=True):
+                     eval_batch_size=256, do_eval=True, val_eval_samples=0):
     """
     Train one ref-alt contrast experiment across all GPUs in gpu_list
     using nn.DataParallel.
@@ -491,7 +516,8 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
         training_metrics.csv     — only written if do_eval=True. One row per
                                    eval_interval: train subset AUROC/AUPRC
                                    (train_eval_samples random samples) +
-                                   full val AUROC/AUPRC.
+                                   val AUROC/AUPRC (full val set, or the
+                                   fixed val_eval_samples subset).
         best_model.pt            — only written if do_eval=True. Saved when
                                    val AUROC improves.
         training_metrics_final.csv — only written if do_eval=True.
@@ -511,6 +537,11 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
     train_eval_samples : number of random training samples for train AUROC/AUPRC
                        estimation at each eval checkpoint. Full train eval can
                        always be done offline via saved checkpoints.
+    val_eval_samples : if > 0 (and smaller than the val set), evaluate val on a
+                       FIXED label-stratified random subset of this size, drawn
+                       once (seed VAL_EVAL_SEED) and reused at every checkpoint.
+                       0 (default) = full val set. best_model.pt is then chosen
+                       on this subset.
     gpu_list         : list of GPU IDs, e.g. [0, 1, 2, 3].
     batch_size       : total training batch size across all GPUs.
     eval_interval    : how often (steps) to save checkpoint and optionally eval.
@@ -548,6 +579,9 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
         logger.info(f"Eval batch size: {eval_batch_size} "
                     f"(larger than train batch is safe — sequential, no_grad)")
         logger.info(f"Train eval     : {train_eval_samples} random samples per checkpoint")
+        logger.info("Val eval       : " + (
+            f"fixed subset of {val_eval_samples} samples (same every checkpoint)"
+            if val_eval_samples else "full validation set"))
 
     # ---- Device setup ----
     device = torch.device(f'cuda:{primary_gpu}')
@@ -606,17 +640,30 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
         # eval_batch_size can be much larger than batch_size because eval
         # runs sequentially after training steps under torch.no_grad() —
         # no activation graphs, gradients, or optimizer states in memory.
+        n_val_eval = None
         if do_eval:
             val_eval_loader = create_dual_data_loader(
                 val_path, tokenizer, eval_batch_size, max_length=2048,
                 shuffle=False, k=k
             )
+            n_val_full = len(val_eval_loader.dataset)
+            if val_eval_samples and val_eval_samples < n_val_full:
+                val_idx = fixed_subset_indices(val_eval_loader.dataset.labels,
+                                               val_eval_samples)
+                val_eval_loader = DataLoader(
+                    torch.utils.data.Subset(val_eval_loader.dataset, val_idx),
+                    batch_size=eval_batch_size, shuffle=False,
+                )
+                val_desc = (f"fixed label-stratified subset: {len(val_idx):,} of "
+                            f"{n_val_full:,} samples, seed {VAL_EVAL_SEED}")
+            else:
+                val_desc = f"all {n_val_full:,} samples"
+            n_val_eval = len(val_eval_loader.dataset)
             logger.info(
                 f"  Train loader : batch={batch_size} (training)"
             )
             logger.info(
-                f"  Val loader   : batch={eval_batch_size} (eval, "
-                f"{len(val_eval_loader.dataset):,} samples, "
+                f"  Val loader   : batch={eval_batch_size} (eval, {val_desc}, "
                 f"~{len(val_eval_loader)} batches)"
             )
 
@@ -925,6 +972,7 @@ def train_experiment(exp_config, train_path, val_path, output_dir,
             'total_steps': global_step,
             'effective_batch_size': batch_size * gradient_accumulation_steps,
             'eval_interval': eval_interval,
+            'val_eval_samples': n_val_eval,
         }
         with open(exp_dir / 'summary.json', 'w') as f:
             json.dump(summary, f, indent=2, default=str)
@@ -989,7 +1037,7 @@ def run_all_experiments(train_path, val_path, output_dir,
                         batch_size_override=None, grad_accum_override=None,
                         eval_interval=1000, gpus_per_experiment=4,
                         train_eval_samples=10000, eval_batch_size=256,
-                        do_eval=True):
+                        do_eval=True, val_eval_samples=0):
     """
     Run all experiments in EXPERIMENT_CONFIGS.
 
@@ -1017,6 +1065,7 @@ def run_all_experiments(train_path, val_path, output_dir,
     logger.info(f"GPUs per experiment: {gpus_per_experiment}")
     logger.info(f"Eval interval      : {eval_interval} steps")
     logger.info(f"Train eval samples : {train_eval_samples}")
+    logger.info(f"Val eval samples   : {val_eval_samples or 'all'}")
     logger.info(f"Do eval            : {do_eval}")
 
     # Assign a contiguous GPU block to each experiment
@@ -1036,6 +1085,7 @@ def run_all_experiments(train_path, val_path, output_dir,
             'train_eval_samples': train_eval_samples,
             'eval_batch_size': eval_batch_size,
             'do_eval': do_eval,
+            'val_eval_samples': val_eval_samples,
         }
         experiment_args.append(
             (cfg, train_path, val_path, str(output_dir), gpu_list, hyperparams)
@@ -1120,8 +1170,13 @@ def main():
     parser.add_argument('--train_eval_samples', type=int, default=10000,
                         help='Number of random training samples to use for train '
                              'AUROC/AUPRC estimation at each eval checkpoint '
-                             '(default: 5000). Full train eval can be done offline '
+                             '(default: 10000). Full train eval can be done offline '
                              'by reloading any saved checkpoint from checkpoints/.')
+    parser.add_argument('--val_eval_samples', type=int, default=0,
+                        help='Evaluate val on a FIXED label-stratified random subset '
+                             'of this many samples, drawn once and reused at every '
+                             'checkpoint (default: 0 = full val set). best_model.pt '
+                             'is then selected on this subset.')
     parser.add_argument('--eval_interval', type=int, default=1000,
                         help='Run full train+val evaluation every N optimizer steps '
                              '(default: 1000). Training loss is logged every step for free. '
@@ -1161,6 +1216,7 @@ def main():
         train_eval_samples=args.train_eval_samples,
         eval_batch_size=args.eval_batch_size,
         do_eval=not args.no_eval,
+        val_eval_samples=args.val_eval_samples,
     )
 
     print("\n" + "=" * 80)

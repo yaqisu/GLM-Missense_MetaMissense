@@ -14,18 +14,18 @@ Every command runs from the **repo root**. Figures are written to `results/evalu
 | Figure | Script | Reads |
 |---|---|---|
 | Fig 1 | — (schematic) | — |
-| Fig 2A | **[TBA-E1]** | frozen-backbone runs (`training/`) |
-| Fig 2B | **[TBA-E2]** | local-window pooling runs |
-| Fig 3A | **[TBA-E3]** | LoRA model-selection runs |
-| Fig 3B | **[TBA-E4]** | allele-aware input runs |
+| Fig 2A | `plot_frozen_bar.py` | best validation AUROC of each frozen-backbone run (`training/`) |
+| Fig 2B | `plot_repr_window_bar.py` (`fig_window`) | local-window pooling runs |
+| Fig 3A | `summarize_sweep.py` → `plot_lora_bar_updated.py` | LoRA model-selection runs |
+| Fig 3B | `plot_repr_window_bar.py` (`fig_repr`) | allele-aware input runs |
 | Fig S2 | `frozen_model_comparison.py` | `results/frozen_results.tsv` (**[TBA-E1]**) |
 | Fig S3 | **[TBA-E2]** | local-window pooling runs |
-| Fig S4 | **[TBA-E5]** | LoRA vs full fine-tuning runs |
+| Fig S4 | `plot_lora_fullFT.py` | full fine-tuning runs (`exp_55`–`exp_59`) and the full-split LoRA run |
 | Fig S5 | **[TBA-E4]** | allele-aware input runs |
 | Fig S6 | `plot_training_curves.py` | `results/NT2_seq12k_BLBvsPLP_ref_alt_contrast_mlp/exp_1_concat_diff/training_metrics.csv` |
 | Fig S7 | `zeroshot_nt.py` → `fig_zeroshot.py` | GLM-Missense and zero-shot NT-2 scores of the held-out test set |
-| Fig S10 | **[TBA-E7]** | ESM1b-FT training metrics (`training/`, **[TBA-T2]**) |
-| Table S1 | **[TBA-E6]** | 5-fold CV runs (`training/NT2_ranked_cv.py`) |
+| Fig S10 | `plot_training_curves.py --name figS10` | `results/models/ESM1b-FT/exp_1_concat_diff/training_metrics.csv` |
+| Table S1 | `training/NT2_ranked_cv.py` | `results/NT2_seq12k_BvsP_ranked_cv/cv_summary.csv` |
 
 ---
 
@@ -58,29 +58,73 @@ python evaluation/plot_training_curves.py         # Fig S6 -> results/evaluation
 
 ---
 
+## Fig 2, Fig 3, Fig S4, Fig S10 and Table S1
+
+```bash
+# Fig 2A: best validation AUROC of every frozen-backbone configuration (NT-2 12k / 6k, NT-1, Caduceus-PS x heads x
+# embeddings; values in RECORDS, from each run's summary) -> results/figures/fig_frozen.{pdf,png}
+python evaluation/plot_frozen_bar.py
+
+# Fig 3A: rank the 54 LoRA configurations (mean of the AUROC and AUPRC ranks) -> experiment_ranking.json
+# (input of training/NT2_ranked_cv.py) and summary_ranked_by_{auroc,auprc,mean_rank}.csv in the sweep folder
+python evaluation/summarize_sweep.py results/NT2_seq12k_BvsP_lora_fullFT_sweep --csv
+python evaluation/plot_lora_bar_updated.py results/NT2_seq12k_BvsP_lora_fullFT_sweep/summary_ranked_by_mean_rank.csv \
+    --fine-tuning lora --out-path results/evaluation/figures/fig3A          # fig3A.{pdf,png}
+
+# Fig 2B (fig_window) and Fig 3B (fig_repr): one table per figure, then both bar charts
+python - <<'EOF'
+import json, pathlib, pandas as pd
+w = pathlib.Path('results/NT2_seq12k_BvsP_window_pooling'); rows = []
+for e in sorted(w.glob('exp_*')):
+    c = json.load(open(e / 'summary.json'))['config']
+    m = pd.read_csv(e / 'training_metrics.csv')
+    m['exp_id'], m['embedding_strategy'], m['window_half_size'] = c['exp_id'], c['embedding_strategy'], c['window_half_size']
+    rows.append(m)
+pd.concat(rows).to_csv(w / 'window_metrics.csv', index=False)
+s = json.load(open('results/NT2_seq12k_BvsP_lora_fullFT_sweep/exp_36/summary.json'))      # alt
+alt = pd.DataFrame([dict(exp_id=36, combine_mode='alt_only', best_val_auroc=s['best_val_auroc'],
+                         best_val_auprc=s['best_val_auprc'])])
+ra = pd.read_csv('results/NT2_seq12k_BvsP_allele_inputs/all_experiments_summary.csv')       # ref-alt, ref-alt-diff
+pd.concat([alt, ra])[['exp_id', 'combine_mode', 'best_val_auroc', 'best_val_auprc']] \
+  .to_csv('results/NT2_seq12k_BvsP_allele_inputs/repr_summary.csv', index=False)
+EOF
+python evaluation/plot_repr_window_bar.py results/NT2_seq12k_BvsP_allele_inputs/repr_summary.csv \
+    results/NT2_seq12k_BvsP_window_pooling/window_metrics.csv --outdir results/evaluation/figures --png
+# -> fig_repr.{pdf,png} (Fig 3B), fig_window.{pdf,png} (Fig 2B; the variant-position and full mean-pool bars are
+#    the frozen NT-2 CNN values in WINDOW_EXTRA)
+
+# Fig S4: training and validation AUROC / AUPRC of the five full fine-tuning runs and the full-split LoRA run
+python - <<'EOF'
+import json, pathlib, pandas as pd
+d = pathlib.Path('results/NT2_seq12k_BvsP_lora_fullFT_sweep'); rows = []
+for e in range(55, 60):
+    m = pd.read_csv(d / f'exp_{e}/training_metrics.csv')
+    m['exp_id'] = e
+    m['learning_rate'] = json.load(open(d / f'exp_{e}/summary.json'))['config']['learning_rate']   # configured LR
+    rows.append(m)
+pd.concat(rows).to_csv(d / 'fullFT_metrics.csv', index=False)
+EOF
+python evaluation/plot_lora_fullFT.py results/NT2_seq12k_BvsP_lora_fullFT_sweep/fullFT_metrics.csv \
+    results/NT2_seq12k_BvsP_lora_fullData/exp_1/training_metrics.csv -o results/evaluation/figures/figS4.pdf
+
+# Fig S10: as Fig S6, for the ESM1b-FT run (same training_metrics.csv columns; best step 3,000)
+python evaluation/plot_training_curves.py --name figS10 --model ESM1b-FT \
+    --input results/models/ESM1b-FT/exp_1_concat_diff/training_metrics.csv     # -> figS10.{pdf,png}
+```
+
+Table S1: `training/NT2_ranked_cv.py` writes the mean and standard error over the five folds of each configuration to
+`results/NT2_seq12k_BvsP_ranked_cv/cv_summary.csv` (per fold: `all_fold_results.csv`).
+
+---
+
 ## To be added
 
-Each item: the script that draws the figure from the `training/` run folders (named in `training/README.md`,
-**[TBA-T1]**), writing `results/evaluation/figures/<figure>.{pdf,png}`, and a row in the table above.
+> **[TBA-E1] `results/frozen_results.tsv` (input of Fig S2).** One row per frozen-backbone run, with the columns
+> `Model`, `Fine-tuning`, `Embedding strategy`, `Classifier head`, `Classifier head - hidden layers`, `Input length`
+> and the training and validation AUROC at every 1,000 steps (`Training_Step{N}_AUC`, `Val_Step{N}_AUC`). To add: how
+> this table is made from the runs' `training_metrics.csv` files.
 
-> **[TBA-E1] Fig 2A (frozen backbones).** Best validation AUROC of every frozen-backbone configuration (NT-2, NT-1,
-> Caduceus-PS × heads × embeddings). Also: how `results/frozen_results.tsv` (the input of Fig S2) is compiled from the
-> runs' `training_metrics.csv` files.
+> **[TBA-E2] Fig S3.** Training / validation AUROC and AUPRC curves of the ±8, ±16, ±32-token runs
+> (`results/NT2_seq12k_BvsP_window_pooling/exp_*/training_metrics.csv`).
 
-> **[TBA-E2] Fig 2B and Fig S3 (local-window pooling).** Validation AUROC by window size (Fig 2B) and training /
-> validation AUROC and AUPRC curves of the ±8, ±16, ±32-token runs (Fig S3).
-
-> **[TBA-E3] Fig 3A (LoRA model selection).** Validation AUROC and AUPRC of the 54 LoRA configurations, ordered by
-> mean rank. The same ranking is the `--ranking_json` input of `training/NT2_ranked_cv.py`.
-
-> **[TBA-E4] Fig 3B and Fig S5 (allele-aware inputs).** Validation performance of alt, ref-alt and ref-alt-diff
-> (Fig 3B) and their training / validation curves (Fig S5).
-
-> **[TBA-E5] Fig S4 (LoRA vs full fine-tuning).** Training and validation AUROC / AUPRC of the top LoRA run and the
-> five full fine-tuning runs.
-
-> **[TBA-E6] Table S1.** Mean and standard error over the five chromosome-exclusive folds of the top 10 LoRA
-> configurations (`training/NT2_ranked_cv.py` output).
-
-> **[TBA-E7] Fig S10 (ESM1b-FT training curves).** As Fig S6, for the ESM1b-FT run (best step 3,000). If the ESM1b-FT
-> metrics file has the columns of the GLM-Missense `training_metrics.csv`, `plot_training_curves.py` can take its path.
+> **[TBA-E4] Fig S5.** Training / validation curves of the allele-aware input runs.
