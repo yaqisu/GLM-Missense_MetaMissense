@@ -119,11 +119,6 @@ Table S1: `training/NT2_ranked_cv.py` writes the mean and standard error over th
 
 ## To be added
 
-> `results/frozen_results.tsv` (input of Fig S2). One row per frozen-backbone run, with the columns
-> `Model`, `Fine-tuning`, `Embedding strategy`, `Classifier head`, `Classifier head - hidden layers`, `Input length`
-> and the training and validation AUROC at every 1,000 steps (`Training_Step{N}_AUC`, `Val_Step{N}_AUC`). To add: how
-> this table is made from the runs' `training_metrics.csv` files.
-
 > **[TBA-E2] Fig S3.** Training / validation AUROC and AUPRC curves of the ±8, ±16, ±32-token runs
 > (`results/NT2_seq12k_BvsP_window_pooling/exp_*/training_metrics.csv`).
 
