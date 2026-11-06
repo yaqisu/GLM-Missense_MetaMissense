@@ -31,7 +31,7 @@ pipeline is self-contained and does not require running any other part of this r
 ├── training/        architecture exploration and GLM-Missense training (fine-tuning runs)
 ├── evaluation/      model-development figures: Figs 2, 3, S2–S7, S10, Table S1
 ├── analysis/        what GLM-Missense adds to established predictors: Figs 4–7, S8, S9, S11–S14, Tables 1, 2, S2
-│   └── scoring/     scores and annotations of the analysis tables (ESM1b-FT, SpliceAI, Saluki, sequence features, ...)
+│   └── scoring/     scores and annotations of the analysis tables (ESM1b-FT, SpliceAI, Saluki, ...)
 ├── scoring/         score new variants with the released GLM-Missense and MetaMissense
 ├── data/            downloaded and generated data (not tracked)
 └── results/         model outputs, annotated tables, figures (not tracked)
