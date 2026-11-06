@@ -66,7 +66,7 @@ from xgboost import XGBClassifier  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]                               # repo root
 MAIN = 'ClinVar.260923only.BLBvsPLP_{split}.main.tsv'
-SGE_FILE = 'results/annotated/sge/RAD51D_SGE_missense_annotated.tsv'                     # [TBA-A2] in README
+SGE_FILE = 'results/annotated/sge/RAD51D_SGE_missense_annotated.tsv'                     # RAD51D SGE table (README, Inputs)
 TIERS = ['clinvar_tx', 'clinvar_tx_mapped', 'variant']                   # strict_transcript
 TEST_CHROMS = {'2', '3', '16', '17'}
 

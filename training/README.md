@@ -18,10 +18,10 @@ The ensembles (MetaMissense and the ablation ensembles) are trained in `analysis
 | Fig 2A, Fig S2 | Frozen backbones: NT-1 (6k) | `NT1_phase1.py` | `ClinVar.251103.missense.hg38.seq6k.BvsP_{training,validation}.tsv` |
 | Fig 2A, Fig S2 | Frozen backbones: Caduceus-PS (30k) | `caduceus_phase1.py` | `ClinVar.251103.missense.hg38.seq30k.BvsP_{training,validation}.tsv` |
 | Fig 2B, Fig S3 | Local-window mean pooling (±8, ±16, ±32 tokens), frozen NT-2 + CNN | `NT2_window_pooling_sweep.py` | `ClinVar.251103.missense.hg38.seq12k.BvsP_{training,validation}.tsv` |
-| Fig 3A | LoRA model selection: 54 configurations (2 embeddings × 3 heads × 3 ranks × 3 learning rates) | `NT2_lora_fullFT_sweep.py` (part 1) | 5,000 / 1,250 subsets (**[TBA-P1]**) |
+| Fig 3A | LoRA model selection: 54 configurations (2 embeddings × 3 heads × 3 ranks × 3 learning rates) | `NT2_lora_fullFT_sweep.py` (part 1) | 5,000 / 1,250 subsets (`preprocessing/make_subsets.py`) |
 | Fig S4 | LoRA vs full fine-tuning (5 learning rates) | `NT2_lora_fullFT_sweep.py` (part 2); `NT2_single_mlp_lora32_lr5e5_fulltrain.py` (LoRA) | `ClinVar.251103.missense.hg38.seq12k.BvsP_{training,validation}.tsv` |
-| Table S1 | 5-fold chromosome-exclusive CV of the top 10 LoRA configurations | `NT2_ranked_cv.py` (`--ranking_json` from the Fig 3A run) | combined 6,250-variant subset (**[TBA-P1]**) |
-| Fig 3B, Fig S5 | Allele-aware inputs: alt, ref-alt, ref-alt-diff, alt-alt-alt | `NT2_ref_alt_input_sweep.py`, `NT2_ref_alt_input_sweep_altTriple.py` (alt-alt-alt) | 5,000 / 1,250 subsets (**[TBA-P1]**) |
+| Table S1 | 5-fold chromosome-exclusive CV of the top 10 LoRA configurations | `NT2_ranked_cv.py` (`--ranking_json` from the Fig 3A run) | combined 6,250-variant subset (`preprocessing/make_subsets.py`) |
+| Fig 3B, Fig S5 | Allele-aware inputs: alt, ref-alt, ref-alt-diff, alt-alt-alt | `NT2_ref_alt_input_sweep.py`, `NT2_ref_alt_input_sweep_altTriple.py` (alt-alt-alt) | 5,000 / 1,250 subsets (`preprocessing/make_subsets.py`) |
 | Fig S6 | **GLM-Missense**: NT-2, LoRA r = 32, ref-alt-diff, MLP head | `NT2_ref_alt_contrast.py` (command in `runs.sh`); `evaluate_checkpoints.py` (optional offline checkpoint evaluation) | `ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_{training,validation}.tsv` |
 | Fig S10 | **ESM1b-FT**: ESM1b with the GLM-Missense head and settings | `analysis/scoring/fine-tune_ESM1b.py` (see ESM1b-FT below) | same variants as GLM-Missense, as protein sequences |
 
@@ -44,10 +44,13 @@ validation AUROC / AUPRC every 1,000 steps, read by `evaluation/plot_training_cu
 ## Run commands
 
 `A` = `data/splits/ClinVar.251103.missense.hg38`. `SUB_TRAIN`, `SUB_VAL` and `CV_SET` are the 5,000-variant training
-subset, the 1,250-variant validation subset and their 6,250-variant union (**[TBA-P1]** in `preprocessing/`).
+subset, the 1,250-variant validation subset and their 6,250-variant union (`preprocessing/make_subsets.py`).
 
 ```bash
 A=data/splits/ClinVar.251103.missense.hg38
+SUB_TRAIN=$A.seq12k.BvsP_training_subset.tsv
+SUB_VAL=$A.seq12k.BvsP_validation_subset.tsv
+CV_SET=$A.seq12k.BvsP_cv_subset.tsv
 
 # Fig 2A, Fig S2 — frozen backbones
 python training/NT2_phase1_and_unfreezeAll.py --train_path $A.seq12k.BvsP_training.tsv \

@@ -7,7 +7,7 @@ Classifier Head and Embedding Strategy Comparison
 Fig S2: training (left) and validation (right) AUROC over training steps of every
 frozen-backbone configuration.
 
-Reads:  results/frozen_results.tsv  (one row per run, Val_Step{N}_AUC columns; see [TBA-E1])
+Reads:  results/frozen_results.tsv  (one row per run, Val_Step{N}_AUC columns; see evaluation/README.md)
         — only frozen-backbone rows (Fine-tuning == "frozen" or
           "frozen-input_leng=6k")
 

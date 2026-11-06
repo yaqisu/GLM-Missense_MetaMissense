@@ -58,6 +58,9 @@ ClinVar FTP (NCBI)               Ensembl FTP
 
 [Step 4] clinvar_transcripts.py  →  data/clinvar/clinvar_transcripts.tsv
          (the transcript ClinVar named each variant on; used by scoring/annotate_dbnsfp.py --clinvar_tx)
+
+[Step 5] make_subsets.py  →  data/splits/*.BvsP_{training,validation,cv}_subset.tsv
+         (architecture-exploration subsets for Fig 3A, Fig 3B, Fig S5, Table S1)
 ```
 
 ---
@@ -83,6 +86,9 @@ python preprocessing/clinvar_transcripts.py \
     --gene2ensembl data/clinvar/gene2ensembl.gz \
     --beds 'data/bed/ClinVar.*.missense.hg38.*.bed' \
     --output data/clinvar/clinvar_transcripts.tsv
+
+# Step 5 — Architecture-exploration subsets (Fig 3A, Fig 3B, Fig S5, Table S1)
+python preprocessing/make_subsets.py
 ```
 
 > Each step skips output files that already exist, so it is safe to re-run after interruptions. To rebuild a split,
@@ -276,17 +282,23 @@ python preprocessing/extract_variant_sequences.py \
 
 ---
 
-## To be added
+## Step 5 — Architecture-exploration subsets
 
-> **[TBA-P1] Architecture-exploration subsets.** The LoRA model selection (Fig 3A) and the allele-aware input
-> comparison (Fig 3B, Fig S5) used a 5,000-variant label-stratified subset of the architecture-exploration training
-> set and a 1,250-variant subset of its validation set; the combined 6,250 variants were repartitioned into five
-> chromosome-exclusive folds for cross-validation (Table S1). To add: the script (or command) that draws these subsets,
-> with its random seed.
-> Input: `data/splits/ClinVar.251103.missense.hg38.seq12k.BvsP_{training,validation}.tsv`.
-> Output: `data/splits/` (file names to be listed here), read by `training/NT2_lora_fullFT_sweep.py`
-> (`--train_path_sweep`, `--val_path_sweep`), `training/NT2_ranked_cv.py` (`--data_path`) and
-> `training/NT2_ref_alt_input_sweep.py`.
+**Script:** `preprocessing/make_subsets.py`
+**Requires:** the architecture-exploration split (Step 3), `preprocessing/architecture_subset_ids.tsv`
+**Output:** `data/splits/ClinVar.251103.missense.hg38.seq12k.BvsP_{training,validation,cv}_subset.tsv`
+
+LoRA model selection (Fig 3A) and the allele-aware input comparison (Fig 3B, Fig S5) used random subsets of the
+architecture-exploration split: 5,000 training and 1,250 validation variants. Their union (6,250 variants) is the
+cross-validation set of Table S1 (`training/NT2_ranked_cv.py` makes the five chromosome-exclusive folds).
+
+```bash
+python preprocessing/make_subsets.py                      # the subsets used in the manuscript
+python preprocessing/make_subsets.py --random --seed 7    # a new random draw
+```
+
+By default the script rebuilds the manuscript subsets from the variant IDs in `preprocessing/architecture_subset_ids.tsv`;
+`--random` with `--seed` draws new ones (`--n_train`, `--n_val`, `--size`: see `--help` and the script docstring).
 
 ---
 
@@ -301,3 +313,4 @@ python preprocessing/extract_variant_sequences.py \
 | `data/splits/` | No | Training / held-out split files of the Table 2 sets; regenerate with `generate_datasets.sh` |
 | `data/clinvar/` | No | ClinVar `variant_summary`, MANE, gene2ensembl and `clinvar_transcripts.tsv` (Step 4) |
 | `preprocessing/config.tsv` | Yes | Dataset definitions (Table 2) |
+| `preprocessing/architecture_subset_ids.tsv` | Yes | Variant IDs of the architecture-exploration subsets (Step 5) |
