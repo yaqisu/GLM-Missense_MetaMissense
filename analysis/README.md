@@ -401,7 +401,7 @@ into place by `copy_inputs.sh` (source folders in `analysis/copy_inputs.local.sh
 |---|---|---|
 | ClinVar main tables | `results/annotated/clinvar/ClinVar.260923only.BLBvsPLP_{train,test}.main.tsv` (`core.py --main_dir`) | `prep_main_table.py` (below) |
 | RAD51D SGE table | `core.SGE_FILE` under `results/annotated/sge/` (`core.py --sge`) | RAD51D SGE table (below) |
-| held-out VUS table | `results/annotated/vus/ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv` (`scoring/merge_vus.py`) | **[TBA-A3]** |
+| held-out VUS table | `results/annotated/vus/ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv` (`scoring/merge_vus.py`) | held-out VUS table (below) |
 | ClinGen Evidence Repository | `data/clingen/` → `results/analysis/prep/clingen_erepo/` (`fig_circularity.py`) | `prep_clingen_download.sh`, `prep_clingen.py` |
 | ESM1b-FT checkpoint | `results/models/ESM1b-FT/exp_1_concat_diff/best_model.pt` | `training/` (ESM1b-FT training) |
 | ESRseq hexamers, codon stability coefficients | `results/annotated/vus/reference/` (`scoring/seq_features.py`) | Ke et al. 2011; Wu et al. 2019 (reference files, below) |
@@ -540,11 +540,28 @@ python analysis/annotate_exon_junction.py -i $L/figS13_resolved.tsv -g $GTF --tx
     -o $L/figS13_resolved_exon.tsv                                      # Table S2
 ```
 
-### To be added
+### Held-out VUS table (Fig 7, Fig S14)
 
-> **[TBA-A3] Held-out VUS table (Fig 7, Fig S14).** From the held-out VUS set (`preprocessing/`, **[TBA-P3]**): GLM-Missense
-> scores, dbNSFP 5.3.1a, SpliceAI, and the ClinVar transcript and protein change.
-> Output: `results/annotated/vus/ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv`
-> with `variant_id`, `chromosome`, `position`, `ref_allele`, `alt_allele`, `gene`, `TRANSCRIPT_ID` (Ensembl),
-> `HGVS_C`, `PROTEIN_CHANGE` (e.g. `p.Ile293Val`), `clinvar_id`, the dbNSFP columns with `Ensembl_transcriptid`,
-> `GLM-Missense_score`, `spliceai_DS_max` (n = 526,428 before filtering for scores).
+From the held-out VUS set (`preprocessing/`, "Held-out VUS set"), with the scripts used for the later-release ClinVar
+splits: GLM-Missense, dbNSFP 5.3.1a with the ClinVar transcript (`data/clinvar/clinvar_transcripts.tsv`) and its
+transcript-tier columns, and SpliceAI.
+
+```bash
+conda activate lamar
+Q=data/sequences/ClinVar.260923.missense.hg38.uncertain_significance.chr2_3_16_17.bed.seq12k.tsv
+D=results/predictions/ClinVar.260923.VUS_heldout; DB=data/dbnsfp/dbNSFP5.3.1a_grch38.gz
+V=results/annotated/vus/ClinVar_20260923_VUS_missense_heldoutOnly_dbNSFP_GLM-Missense_spliceAI_annot.tsv
+python scoring/GLM-Missense.py --input $Q --model scoring/GLM-Missense.pt --outdir $D          # GLM-Missense.tsv (GPU)
+python scoring/annotate_dbnsfp.py --variants $D/GLM-Missense.tsv --dbnsfp $DB --outdir $D \
+    --clinvar_tx data/clinvar/clinvar_transcripts.tsv                  # dbnsfp.tsv, dbnsfp_fallback.tsv
+python scoring/prepare_metamissense_input.py --glm $D/GLM-Missense.tsv --dbnsfp $DB --outdir $D   # reuses dbnsfp.tsv
+mkdir -p results/annotated/vus && cp $D/MetaMissense_input.tsv $V
+python analysis/scoring/replace_dbnsfp_columns.py --table $V --dbnsfp_tsv $D/dbnsfp.tsv \
+    --fallback_tsv $D/dbnsfp_fallback.tsv                              # + <score>_fb, <score>_tier, matched_enst
+python analysis/scoring/annotate_spliceai.py --spliceai data/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz --files $V
+```
+
+The table holds `variant_id`, `chromosome`, `position`, `ref_allele`, `alt_allele`, `gene`, `TRANSCRIPT_ID`
+(Ensembl), `HGVS_C`, `PROTEIN_CHANGE` (e.g. `p.Ile293Val`) and `clinvar_id` (the transcript ClinVar named the variant
+on and its c. and p. change, from `clinvar_transcripts.tsv`), the dbNSFP columns with `Ensembl_transcriptid`,
+`GLM-Missense_score` and `spliceai_DS_max` (n = 526,428 before filtering for scores).

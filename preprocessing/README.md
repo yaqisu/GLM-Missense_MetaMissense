@@ -19,7 +19,7 @@ variants absent from all six benign and pathogenic classes of the earlier releas
 | GLM-Missense training | Early | Expanded (`BLBvsPLP`) | 2, 3, 16, 17 | 12k | `ClinVar.251103.missense.hg38.seq12k.BLBvsPLP_{training,validation}.tsv` | `training/` (GLM-Missense, ESM1b-FT; Figs S6, S10) |
 | Later release, classified variants | Late | Expanded (`BLBvsPLP`) | 2, 3, 16, 17 (test) | 12k | `ClinVar.260923only.missense.hg38.seq12k.BLBvsPLP_{training,validation}.tsv` | ensemble training (`_training`) and the held-out test set (`_validation`): `evaluation/` (Fig S7), `analysis/` |
 | MetaMissense training; ablation ensembles and benchmarking | Late | Expanded | — | — | subsets of the later-release set with every required score | selected in `analysis/core.py` (no file here) |
-| VUS | All (20260923) | VUS | 2, 3, 16, 17 | 12k | see **[TBA-P3]** | `analysis/` (Fig 7, Fig S14) |
+| VUS | All (20260923) | VUS | 2, 3, 16, 17 | 12k | `data/bed/ClinVar.260923.missense.hg38.uncertain_significance.chr2_3_16_17.bed` (sequences: `data/sequences/`) | `analysis/` (Fig 7, Fig S14) |
 
 The `_validation` file of the later-release set is the **held-out test set** (chromosomes 2, 3, 16, 17, never used to
 train GLM-Missense, ESM1b-FT or any ensemble). `analysis/table_clinvar_sets.py` recounts Table 2 from these files.
@@ -257,6 +257,25 @@ VAL_PATH   = "data/splits/ClinVar.251103.missense.hg38.seq30k.BvsP_validation.ts
 
 ---
 
+## Held-out VUS set (Table 2, VUS row)
+
+`preprocessing/extract_clinvar_vus.sh` extracts the missense SNVs classified exactly as `Uncertain_significance` in a
+ClinVar release (VUS with a secondary term, e.g. `Uncertain_significance|risk_factor`, are left out and counted), on
+the held-out chromosomes 2, 3, 16 and 17 (`-c`, the default), in the BED format of Step 1. Variants present in the
+earlier release are not excluded (n = 526,428). Their 11,999-bp sequences are the GLM-Missense input of the held-out
+VUS table (`analysis/`). Run it before Step 4, so that `clinvar_transcripts.tsv` covers the VUS too.
+
+```bash
+bash preprocessing/extract_clinvar_vus.sh -t clinvar_20260923 -b /path/to/bcftools
+# -> data/bed/ClinVar.260923.missense.hg38.uncertain_significance.chr2_3_16_17.bed
+python preprocessing/extract_variant_sequences.py \
+    -b data/bed/ClinVar.260923.missense.hg38.uncertain_significance.chr2_3_16_17.bed \
+    -f data/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa -l 5999 \
+    -o data/sequences/ClinVar.260923.missense.hg38.uncertain_significance.chr2_3_16_17.bed.seq12k.tsv
+```
+
+---
+
 ## To be added
 
 > **[TBA-P1] Architecture-exploration subsets.** The LoRA model selection (Fig 3A) and the allele-aware input
@@ -268,15 +287,6 @@ VAL_PATH   = "data/splits/ClinVar.251103.missense.hg38.seq30k.BvsP_validation.ts
 > Output: `data/splits/` (file names to be listed here), read by `training/NT2_lora_fullFT_sweep.py`
 > (`--train_path_sweep`, `--val_path_sweep`), `training/NT2_ranked_cv.py` (`--data_path`) and
 > `training/NT2_ref_alt_input_sweep.py`.
-
-> **[TBA-P3] Held-out VUS set (Table 2, VUS row).** All missense variants classified as VUS
-> (`Uncertain_significance`) in the 20260923 release on chromosomes 2, 3, 16 and 17, without excluding variants present
-> in the earlier release (n = 526,428). To add: the extraction (e.g. one more `CLNSIG` entry in `process_clinvar.sh`
-> and a filter to the held-out chromosomes) and, if GLM-Missense scores are computed from this folder, a `config.tsv`
-> row with `split=no` and size `12k`.
-> Input: `data/vcf/clinvar_20260923_missense.vcf.gz`.
-> Output: `data/bed/ClinVar.260923.missense.hg38.uncertain_significance.heldout.bed` (and its 12k sequences in
-> `data/sequences/`), the input of the held-out VUS table in `analysis/` (**[TBA-A3]**).
 
 ---
 
