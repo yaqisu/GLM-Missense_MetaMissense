@@ -18,7 +18,7 @@ Every command runs from the **repo root**. Figures are written to `results/evalu
 | Fig 2B | `plot_repr_window_bar.py` (`fig_window`) | local-window pooling runs |
 | Fig 3A | `summarize_sweep.py` → `plot_lora_bar_updated.py` | LoRA model-selection runs |
 | Fig 3B | `plot_repr_window_bar.py` (`fig_repr`) | allele-aware input runs |
-| Fig S2 | `frozen_model_comparison.py` | `results/frozen_results.tsv` (**[TBA-E1]**) |
+| Fig S2 | `frozen_model_comparison.py` | `results/frozen_results.tsv` |
 | Fig S3 | **[TBA-E2]** | local-window pooling runs |
 | Fig S4 | `plot_lora_fullFT.py` | full fine-tuning runs (`exp_55`–`exp_59`) and the full-split LoRA run |
 | Fig S5 | **[TBA-E4]** | allele-aware input runs |
@@ -119,7 +119,7 @@ Table S1: `training/NT2_ranked_cv.py` writes the mean and standard error over th
 
 ## To be added
 
-> **[TBA-E1] `results/frozen_results.tsv` (input of Fig S2).** One row per frozen-backbone run, with the columns
+> `results/frozen_results.tsv` (input of Fig S2). One row per frozen-backbone run, with the columns
 > `Model`, `Fine-tuning`, `Embedding strategy`, `Classifier head`, `Classifier head - hidden layers`, `Input length`
 > and the training and validation AUROC at every 1,000 steps (`Training_Step{N}_AUC`, `Val_Step{N}_AUC`). To add: how
 > this table is made from the runs' `training_metrics.csv` files.
